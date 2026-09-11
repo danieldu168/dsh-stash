@@ -1,0 +1,35 @@
+{
+  "name": "dsh-stash",
+  "version": "0.6.0",
+  "private": true,
+  "description": "个人资源堆放处：把外部数据库/资料库/文献库登记成可检索的 Model Tool，并在设置界面里管理它们需要的凭据（值由宿主的 credentials 服务保管）。",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./client/client.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "client",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE",
+    "sources.example.mjs"
+  ],
+  "license": "MIT",
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": []
+    }
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

@@ -1,0 +1,29 @@
+# dsh-stash：个人资源堆放处（DeepSeek Harness Profile Bundle）。
+#
+# 安装（在 harness 源码目录执行，路径换成这份代码所在的实际目录）：
+#   pnpm dsh plugin --profile web add "<这份代码所在目录>"
+#   例：Windows "D:\dsh-stash" · macOS/Linux "~/code/dsh-stash"
+#   也可以用 tarball：pnpm dsh plugin --profile web add ./dsh-stash-0.2.0.tgz
+#
+# 安装即注册五个 Model Tool：
+#   stash_catalog     列出已登记的库、覆盖范围、凭据是否就绪
+#   stash_fetch       按 source + action 确定性取数（含 该接口 四个已知坑的固化）
+#   stash_files       列出/检索已登记的本地语料（数据库导出件、文档、数据集等）
+#   stash_source_add  在对话里登记新库
+#   stash_doctor      文库本地体检（不联网）
+# 并在「设置 → 钥匙」加一页，用于录入/移除各库声明的凭据。
+#
+# 库清单不在这个文件里，而在用户可编辑的注册表：
+#   $DSH_HOME/stash/sources.mjs      ← 以后加库只改这里
+# 内容与缓存落在：
+#   $DSH_HOME/stash/cache/           ← 机器写（可删，会重建）
+#   $DSH_HOME/stash/corpus/          ← 你放导出的原始文件
+#
+# 安全边界：本插件不把口令写进注册表。注册表只写凭据"引用名"（如 MY_API_KEY），
+# 值由 credentials 服务从 $DSH_HOME/.credentials.yaml 解析，且每次调用重新解析。
+#
+# 插件自带空配置，绝不弄崩启动。可选配置见 README。
+- insert:
+    - id: dsh-stash
+      name: dsh-stash
+      config: {}

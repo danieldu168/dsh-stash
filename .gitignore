@@ -1,0 +1,25 @@
+# 临时验证脚本（开发时用过就删）
+_*.mjs
+_probe*.mjs
+_smoke*.mjs
+_regress*.mjs
+_verify*.mjs
+
+# 打包产物
+*.tgz
+
+# 万一有人在这里跑 pnpm/npm
+node_modules/
+package-lock.json
+pnpm-lock.yaml
+
+# 编辑器 / 系统
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# 安全网：真实的文库注册表属于 $DSH_HOME，永远不该进这个仓库。
+# （它含你的库清单与凭据引用名；万一有人把它放进包目录做测试，别提交上去。）
+sources.mjs
+sources.local.json
