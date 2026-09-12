@@ -318,6 +318,23 @@ if (sourceAdd && fetchTool && ledgerTool) {
   check('查未知库的台账返回空集而不是报错', unknown.ok === true && unknown.matched === 0)
 }
 
+// ── 缓存寿命与响应头捕获（纯函数，不联网） ────────────────────────────────
+const { isFresh, pickHeaders } = await import(new URL('../lib/http.js', import.meta.url))
+
+const now = new Date().toISOString()
+const old = new Date(Date.now() - 10 * 60_000).toISOString()
+check('未声明 TTL 时缓存永不过期（保持旧行为）', isFresh(old, 0) === true && isFresh(old, undefined) === true)
+check('TTL 内的缓存算新鲜', isFresh(now, 60_000) === true)
+check('超过 TTL 的缓存算过期', isFresh(old, 60_000) === false)
+check('声明了 TTL 但时间戳不可解析时判为过期', isFresh('unknown', 60_000) === false && isFresh(undefined, 60_000) === false)
+
+const raw = { 'X-Requests-Remaining': '472', 'x-requests-used': '28', 'set-cookie': 'sid=abc' }
+check('captureHeaders 按名带出，且大小写不敏感',
+  pickHeaders(raw, ['x-requests-remaining', 'X-Requests-Used'])['x-requests-remaining'] === '472')
+check('未点名的响应头一律不带出（set-cookie 不会漏）',
+  !('set-cookie' in pickHeaders(raw, ['x-requests-remaining'])))
+check('未声明 captureHeaders 时返回空对象', Object.keys(pickHeaders(raw, [])).length === 0)
+
 // ── 清场：任何测试残留都要删干净 ─────────────────────────────────────────
 const leftover = (await callRoute('GET', '/stash/credentials'))?.accounts ?? []
 for (const account of leftover) {

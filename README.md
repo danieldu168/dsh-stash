@@ -225,6 +225,11 @@ ${DSH_HOME}/stash/
 > `stash_source_add` 在登记前拒收会导致取数失败的条目（URL 写错、`{credential:REF}` 没声明、`required` 没出现在请求里、`paths` 不是绝对路径）。
 > 全部是增量：**旧注册表不用改**，不写 `access` 只是会在体检里被提示补上。
 
+> **0.7.1 的变化**：`handler: 'http'` 新增两个请求字段——
+> `request.cacheTtlMs`（缓存寿命，过期自动重取；不写保持"永不过期"的旧行为）与
+> `request.captureHeaders`（点名带出的响应头，用于配额一类的计数器；**不点名的一律不带出**，
+> 所以 `set-cookie` 之类不会被顺手捞进结果）。响应头同时随缓存落盘，命中缓存时也能拿到配额数。
+
 ## 加库的三种方式
 
 ### ① 普通 REST 接口 —— 只改注册表，不用写代码
@@ -248,6 +253,8 @@ ${DSH_HOME}/stash/
     required: ['query'],                               // 缺了在发请求前报错
     minGapMs: 1000,                                    // 礼节性节流
     paginate: { param: 'page', start: 1, pages: 3 },   // 或 totalPath: 'meta.totalPages'
+    cacheTtlMs: 60000,                                 // 缓存寿命（毫秒）；不写 = 永不过期
+    captureHeaders: ['x-ratelimit-remaining'],         // 点名带出的响应头（配额计数器一类）
   },
 }
 ```
@@ -361,8 +368,9 @@ dsh-stash: pending (waiting for services: ...)
 
 ## 已知限制
 
-- 取数缓存无过期策略，改数据需传 `refresh: true`。**台账里的 `fetchedAt` 是判断数据新旧的依据**：
-  它是老时间，说明你拿到的是旧缓存。
+- 取数缓存**默认不过期**（向后兼容 0.6.0 行为）。注册表声明 `request.cacheTtlMs` 之后才有寿命，过期即自动重取；
+  声明了 TTL 却拿不到可解析的 `fetchedAt` 时判为过期。**赔率、行情这类快变数据必须声明 TTL**，否则你会一直拿到旧快照。
+  台账里的 `fetchedAt` 是判断数据新旧的第二道依据。
 - **台账只记指纹不记内容**，所以它不能替代 `corpus/`。想复现内容本身，仍然要靠缓存或人工导出件。
 - 台账目前只记 `source` / `action` / `params` 与结果指纹，**不记是哪个会话或哪个 agent 调的**。
 - `stash_files` 的检索是子串匹配，不是语义检索；不做内容分析。它就不该被当成"文库检索"用。
