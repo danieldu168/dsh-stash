@@ -17,6 +17,12 @@
 //   request     handler=http 时必填，见下方第 3 条
 //   paths       kind=files 时必填，本地文件或目录的绝对路径数组
 //   credentials 需要的凭据"引用名"数组（不是值！）
+//   access      使用边界：public-api | official-api | export-import | unsupported
+//                 - public-api    公开免登录接口，程序可以直连取数
+//                 - official-api  需要官方机构 API 或授权凭据（凭据在「设置 → 钥匙」里配）
+//                 - export-import 只能人工在网页端导出后放进 corpus/，程序不得代为取数
+//                 - unsupported   明确不做（条款禁止、需绕过访问控制等）
+//                 写后两者时，stash_fetch 会拒绝并只留一条台账 —— 那是承诺，不是建议
 //   actions     动作说明，会出现在 stash_catalog 里
 //   notes       注意事项，会一起回给模型
 //   boundary    明确的禁止边界，会一起回给模型
@@ -81,6 +87,7 @@ export default [
     // 若你自己还要手动登录其它端点，就在这行声明你自己的引用名（值在「设置 → 钥匙」里录入），例如：
     //   credentials: ['MY_ACCOUNT', 'MY_PASSWORD'],
     credentials: [],
+    access: 'public-api',
     actions: {
       countries: '列出/搜索国别码与各国可用年份区间（254 条，带磁盘缓存）',
       product: '单个 HS 编码在某报告国的合计，附同期返回的兄弟编码对照',
@@ -106,6 +113,7 @@ export default [
     summary: 'WTO 成员的技术性贸易壁垒(TBT)与动植物卫生检疫(SPS)通报，用于合规预警与市场准入跟踪。',
     coverage: '按通报分发日期区间检索 · area=SPS|TBT · 含国别/关键词/HS 码/评议截止日',
     credentials: [],
+    access: 'public-api',
     actions: {
       search: '按日期区间检索通报；area / member / keyword 在已抓取窗口内做客户端过滤',
     },
@@ -125,6 +133,7 @@ export default [
     handler: 'http',
     summary: '演示声明式取数：把下面整条删掉，换成你自己的接口即可。',
     credentials: ['MY_API_KEY'],
+    access: 'official-api',
     actions: {
       search: '按关键词检索；参数 query / limit',
     },

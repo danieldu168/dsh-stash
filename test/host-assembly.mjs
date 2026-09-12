@@ -6,6 +6,25 @@
 // 只有 `ctx.inject` 的回调能拿到服务 —— 旧写法必然失败，新写法必然通过。
 //
 // 用法：node test/host-assembly.mjs
+//
+// 隔离：整个测试跑在一个临时 DSH_HOME 下，既不读也不写你真实的 ~/.dsh/stash。
+// 注册表用包内附带的 sources.example.mjs 种进去，所以这个脚本在别人机器上也能通过。
+import { copyFileSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+
+const TEST_HOME = mkdtempSync(join(tmpdir(), 'dsh-stash-test-'))
+process.env.DSH_HOME = TEST_HOME
+mkdirSync(join(TEST_HOME, 'stash'), { recursive: true })
+copyFileSync(new URL('../sources.example.mjs', import.meta.url), join(TEST_HOME, 'stash', 'sources.mjs'))
+process.on('exit', () => {
+  try {
+    rmSync(TEST_HOME, { recursive: true, force: true })
+  } catch {
+    // 临时目录留在系统 temp 里也无妨。
+  }
+})
+
 const results = []
 const check = (label, ok, detail = '') => results.push(`${ok ? '✅' : '❌'} ${label}${detail ? '  ' + detail : ''}`)
 
@@ -42,7 +61,7 @@ try {
 }
 
 check('声明了 ctx.inject 依赖', injected.includes('webServer') && injected.includes('commands'), injected.join(', '))
-check('注册 7 个工具', tools.length === 7, tools.map((t) => t.name).join(', '))
+check('注册 8 个工具', tools.length === 8, tools.map((t) => t.name).join(', '))
 check('凭据路由已注册（经 ctx.inject）', registered.route?.path === '/stash/credentials', registered.route ? `${registered.route.kind} ${registered.route.path}` : '未注册')
 check('/stash 命令已注册（经 ctx.inject）', registered.command?.name === 'stash', registered.command?.name ?? '未注册')
 check('无启动告警', warns.length === 0, warns.join(' | '))
@@ -179,7 +198,9 @@ check('不支持的方法返回失败', badMethod?.ok === false)
 if (registered.command) {
   const result = await registered.command.handler({ rawInput: '', agent: { id: 'x' } })
   check('/stash 返回 success', result.kind === 'success')
-  check('/stash 输出含 4 个库', ['trade_stats', 'policy_alerts', 'corpus', 'cases'].every((id) => result.text.includes(id)))
+  // 不硬编码某个人的库 id：命令输出必须覆盖注册表里的每一条。
+  const ids = (initial?.libraries ?? []).map((library) => library.id)
+  check('/stash 输出覆盖注册表全部库', ids.length >= 4 && ids.every((id) => result.text.includes(id)), ids.join(', '))
 }
 
 // ── Model Tool：模型能建条目、但拿不到值 ──────────────────────────────────
@@ -222,10 +243,79 @@ if (credRemove) {
 
 // ── 体检 ─────────────────────────────────────────────────────────────────
 if (doctor) {
+  // 先造一条账号，台账统计才有确定性的东西可断言 —— 否则这个测试会依赖"这台机器上
+  // 恰好有真实账号"，在别人机器和 CI 上必失败。
+  if (credAdd) {
+    await credAdd.execute({
+      id: 'zz_doctor_account',
+      label: 'ZZ 体检账号',
+      category: 'api',
+      fields: [{ ref: 'ZZ_DOCTOR_KEY', label: '密钥' }],
+    })
+  }
   const report = await doctor.execute()
   check('体检 healthy', report.healthy === true, JSON.stringify(report.problems))
-  check('体检报告含台账统计', Boolean(report.ledger) && report.ledger.accounts >= 1 && report.ledger.fields >= 1, JSON.stringify(report.ledger))
+  check('体检报告含台账统计', report.ledger.accounts >= 1 && report.ledger.fields >= 1, JSON.stringify(report.ledger))
   check('体检 render 含台账行', doctor.output.render({}, report).map((b) => b.text).join('\n').includes('钥匙台账'))
+  check('体检返回条目深度校验结果', Array.isArray(report.deepIssues) && report.deepErrors === 0, JSON.stringify(report.deepIssues))
+  check('体检返回取数台账统计', Boolean(report.fetchLedger) && report.fetchLedger.records >= 0)
+  check('体检 render 含取数台账行', doctor.output.render({}, report).map((b) => b.text).join('\n').includes('取数台账'))
+  if (credRemove) await credRemove.execute({ id: 'zz_doctor_account' })
+}
+
+// ── 使用边界 + 取数台账 ──────────────────────────────────────────────────
+const sourceAdd = tools.find((t) => t.name === 'stash_source_add')
+const fetchTool = tools.find((t) => t.name === 'stash_fetch')
+const ledgerTool = tools.find((t) => t.name === 'stash_ledger')
+check('注册了 stash_ledger', Boolean(ledgerTool))
+check('注册了 stash_source_add / stash_fetch', Boolean(sourceAdd) && Boolean(fetchTool))
+
+if (sourceAdd && fetchTool && ledgerTool) {
+  // 深度校验：能加载但注定取不到数的写法，在登记前就拒收
+  const badUrl = await sourceAdd.execute({ id: 'zz_bad_url', name: 'x', kind: 'remote', handler: 'http', request: { url: '不是URL' } })
+  check('登记时拒绝非法 request.url', badUrl.ok === false, badUrl.error ?? '')
+
+  const badRef = await sourceAdd.execute({
+    id: 'zz_bad_ref', name: 'x', kind: 'remote', handler: 'http', access: 'official-api',
+    request: { url: 'https://example.com/a', headers: { 'X-K': '{credential:NOT_DECLARED}' } },
+  })
+  check('登记时拒绝未声明的凭据引用', badRef.ok === false, badRef.error ?? '')
+
+  const badRequired = await sourceAdd.execute({
+    id: 'zz_bad_required', name: 'x', kind: 'remote', handler: 'http', access: 'public-api',
+    request: { url: 'https://example.com/a', required: ['query'] },
+  })
+  check('登记时拒绝没出现在请求里的 required', badRequired.ok === false, badRequired.error ?? '')
+
+  const badAccess = await sourceAdd.execute({
+    id: 'zz_bad_access', name: 'x', kind: 'remote', handler: 'http', access: 'whatever',
+    request: { url: 'https://example.com/a' },
+  })
+  check('登记时拒绝非法 access', badAccess.ok === false, badAccess.error ?? '')
+
+  // 使用边界：声明了 export-import 的库，取数被拒且留痕
+  const bounded = await sourceAdd.execute({
+    id: 'zz_boundary', name: 'ZZ 边界库', kind: 'remote', handler: 'http', access: 'export-import',
+    request: { url: 'https://example.com/never-called' },
+  })
+  check('能登记一条声明了边界的库', bounded.ok === true, JSON.stringify(bounded))
+
+  const refused = await fetchTool.execute({ source: 'zz_boundary', action: 'search' })
+  check('access=export-import 的库被 stash_fetch 拒绝', refused.ok === false && refused.kind === 'boundary', JSON.stringify(refused).slice(0, 160))
+  check('被拒绝也返回 ledgerId（留痕）', typeof refused.ledgerId === 'string' && refused.ledgerId.length === 12, String(refused.ledgerId))
+
+  const ledger = await ledgerTool.execute({ source: 'zz_boundary' })
+  check('台账能查到刚才那条拒绝记录', ledger.ok === true && ledger.matched >= 1 && ledger.records[0].ok === false, JSON.stringify(ledger).slice(0, 160))
+  check('台账记录带 contentHash 与 engine', typeof ledger.records[0]?.contentHash === 'string' && typeof ledger.records[0]?.engine === 'string')
+  check('台账只记指纹不记内容', !/"items":/.test(JSON.stringify(ledger.records)))
+  check('台账 render 显示拒绝原因', ledgerTool.output.render({}, ledger).map((b) => b.text).join('\n').includes('export-import'))
+
+  const onlyFailed = await ledgerTool.execute({ onlyFailed: true })
+  check('onlyFailed 只返回失败记录', onlyFailed.records.every((record) => record.ok !== true))
+  check('只有一条台账时 total 一致', ledger.total === 1, String(ledger.total))
+
+  const unknown = await ledgerTool.execute({ source: 'zz_no_such_library' })
+  check('查未知库的台账返回空集而不是报错', unknown.ok === true && unknown.matched === 0)
 }
 
 // ── 清场：任何测试残留都要删干净 ─────────────────────────────────────────

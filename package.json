@@ -1,8 +1,8 @@
 {
   "name": "dsh-stash",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "private": true,
-  "description": "个人资源堆放处：把外部数据库/资料库/文献库登记成可检索的 Model Tool，并在设置界面里管理它们需要的凭据（值由宿主的 credentials 服务保管）。",
+  "description": "外接数据源的门禁、钥匙与台账：把外部数据库/资料库/文献库登记成可检索的 Model Tool，声明每条库允许怎么取数，每次取数留一条只含指纹的台账（凭据值由宿主的 credentials 服务保管）。",
   "type": "module",
   "main": "lib/index.js",
   "exports": {

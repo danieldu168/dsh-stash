@@ -1,6 +1,18 @@
-# dsh-stash —— 个人持久文库
+# dsh-stash —— 外接数据源的门禁、钥匙与台账
 
-把散落的外部数据库、资料库、文献库登记成**一组可检索的 Model Tool**，让 agent 需要时按需取数，而不是把语料灌进上下文。
+让 agent 能取数，但看不到钥匙；能引用，但说不清来源就不算数。
+
+它把散落的外部数据库 / 资料库 / 文献库 / MCP 服务登记成**一组可检索的 Model Tool**，
+并为每条库回答三件 MCP 不回答的事：
+
+| 问题 | 谁来回答 |
+|---|---|
+| 这条库**允许怎么取**？公开接口 / 官方 API / 只能人工导出 / 明确不做 | 库的 `access` 声明。**越界时拒绝执行，而不是尽力而为** |
+| 取数要**哪把钥匙**、配没配、值放哪？ | 钥匙台账 + 宿主 credentials 服务。**模型全程看不到值** |
+| 这次取数**取到了什么**？ | 取数台账。每条记录一个 `ledgerId` 与 `contentHash`，**只记指纹不记内容** |
+
+分工分清楚：**MCP 是插座，stash 是配电箱**——谁有权限、走哪一路、什么时候用过。
+通用连接会被标准化掉，凭据边界、口径陷阱和取数留痕不会。
 
 装在 Profile 层（host 半边），所以：**每个新会话自动可用，不需要切 preset**，并出现在「设置 → 插件 → 插件清单」里。
 
@@ -44,6 +56,7 @@ pnpm dsh plugin --profile web add "<新位置>/dsh-stash"
 |---|---|---|
 | 库清单 | `$DSH_HOME/stash/sources.mjs` | 拷（可移植） |
 | 工具代写的库 **与钥匙台账** | `$DSH_HOME/stash/sources.local.json` | 拷（`accounts` 在这里） |
+| 取数台账 | `$DSH_HOME/stash/ledger.ndjson` | 按需拷（只含指纹，不含内容） |
 | 原始语料 | `$DSH_HOME/stash/corpus/` | 按需拷（可能很大） |
 | 取数缓存 | `$DSH_HOME/stash/cache/` | **别拷**，会重建 |
 
@@ -72,13 +85,68 @@ mkdir -p "$DSH_HOME/stash" && cp sources.example.mjs "$DSH_HOME/stash/sources.mj
 
 | 工具 | 用途 |
 |---|---|
-| `stash_catalog` | 列出已登记的库：id、覆盖范围、可用动作、凭据是否就绪、本地语料是否存在 |
-| `stash_fetch` | 按 `source` + `action` 确定性取数（陷阱已固化成代码保证） |
+| `stash_catalog` | 列出已登记的库：id、覆盖范围、可用动作、**取数边界**、凭据是否就绪、本地语料是否存在 |
+| `stash_fetch` | 按 `source` + `action` 确定性取数（陷阱已固化成代码保证），**越界只留痕不取数**，返回 `ledgerId` |
 | `stash_files` | 列出/检索本地语料（导出件、文档、数据集），返回路径供 `read` 使用 |
-| `stash_source_add` | **在对话里登记新库**，写入 `sources.local.json` |
-| `stash_doctor` | 文库本地体检（不联网）：注册表、目录可写、handler、凭据、路径 |
+| `stash_ledger` | **查取数台账**：某个库以前取过什么、什么时候、多大一份、成功还是失败 |
+| `stash_source_add` | **在对话里登记新库**，写入 `sources.local.json`；会导致取数失败的条目当场拒收 |
+| `stash_doctor` | 文库本地体检（不联网）：注册表、条目深度校验、目录可写、handler、凭据、路径、台账 |
 | `stash_credential_add` | **登记一条钥匙条目**（一个网站/API/MCP 服务 = 一条，下面挂若干字段）。没有 `value` 参数，永远不会有 |
 | `stash_credential_remove` | 删除代写的条目或字段（不动凭据库里的值） |
+
+## 使用边界（`access`）
+
+文库不只回答"能不能取到"，还要回答"**这样取算不算越界**"。
+一个尽力而为地绕过登录、脚本化抓付费库的取数层，对它的主人是负债——账号会被封，许可会违约，
+而后果落在使用者自己头上。所以每条库都要声明边界：
+
+| `access` | 含义 | `stash_fetch` 的行为 |
+|---|---|---|
+| `public-api` | 公开免登录接口 | 正常取数 |
+| `official-api` | 需要官方机构 API 或授权凭据 | 正常取数（凭据在「设置 → 钥匙」里配） |
+| `export-import` | 只允许人工在网页端导出后放进 `corpus/` | **拒绝**，返回 `kind:"boundary"`，并写一条台账 |
+| `unsupported` | 明确不做（条款禁止、需绕过访问控制等） | **拒绝**，同上 |
+
+不写 `access` 表示"未声明"：取数放行，但 `stash_doctor` 会把每条未声明的库列成提示，
+`stash_source_add` 也允许你登记时一并声明。
+
+**拒绝不是静默失败**：它同样写进台账，所以"我当时试过、它拒绝了"和"我没试过"是两件不同的事。
+
+## 取数台账
+
+研究的底线不是"能查到"，是"**三个月后还能说清这个数字是哪一次取来的**"。
+harness 的会话日志保证"模型看到了什么"，它答不了"外部源当时返回了什么"——这条线由台账补上。
+
+每次 `stash_fetch`（成功、失败、被边界拒绝）都追加一条记录到 `$DSH_HOME/stash/ledger.ndjson`：
+
+```json
+{
+  "id": "d80b36b7553c",            // 引用这一步时把这个 id 一并报出去
+  "at": "2026-09-12T02:54:40.850Z",
+  "source": "trade_stats", "action": "product",
+  "ok": true, "kind": null, "error": null,
+  "cacheHit": false,               // 实际请求还是命中磁盘缓存
+  "fetchedAt": "2026-09-12T02:54:38.101Z",   // 上游/缓存给出的取数时刻
+  "status": 200, "bytes": 18422, "count": 27,
+  "contentHash": "9f2c3a1b8e7d6405",         // 结果指纹
+  "request": "https://www.trademap.org/...?product=020230",  // 已脱敏
+  "params": { "product": "020230" },
+  "origin": "handwritten", "engine": "0.7.0", "ms": 412
+}
+```
+
+三条不可协商的设计决定：
+
+1. **只落指纹，不落内容。** 台账写的是 `contentHash` / `bytes` / `count` / `fetchedAt`，不是响应体。
+   内容归 `cache/` 与 `corpus/`，台账只回答"取过、取到多大一份、指纹是什么"。
+   这既让台账永远很小，也让它天然不可能成为密钥的第二个落点。
+2. **失败也记。** 取数失败、被边界拒绝，都留痕。
+3. **台账写失败绝不影响取数。** 它是审计旁路，不在取数路径上。
+
+`contentHash` **刻意排除 `cached` 字段**：同一份数据首次取数和之后命中缓存会得到同一个哈希。
+所以「两次哈希相同」= 服务端返回的数据逐字节一致；「哈希变了」= 上游数据动过，值得看一眼。
+
+文件是**有界追加**的 NDJSON：超过 2000 条时自动裁到最近 1000 条。
 
 ## 钥匙台账（与库注册表是两个问题）
 
@@ -140,6 +208,7 @@ mkdir -p "$DSH_HOME/stash" && cp sources.example.mjs "$DSH_HOME/stash/sources.mj
 ${DSH_HOME}/stash/
 ├── sources.mjs          ← 手写注册表（库清单 + 台账形状说明）。程序永不改写它
 ├── sources.local.json   ← 代写分片：{ sources: [...库...], accounts: [...账号台账...] }
+├── ledger.ndjson        ← 取数台账，机器写（指纹，不是内容；可随时删，删了就没了历史）
 ├── cache/               ← 取数缓存，机器写（可随时删）
 ├── corpus/              ← 原始语料，你放（如数据库导出件）
 └── backup/              ← 迁移前留的 .bak（可随时删）
@@ -150,6 +219,11 @@ ${DSH_HOME}/stash/
 **每次工具调用都重新读取**（`.mjs` 用 mtime 穿透 ESM 缓存），所以改完无需重启 harness。
 
 > **0.6.0 的台账迁移**：钥匙台账原本写在手写 `sources.mjs` 的 `export const credentials = [...]` 里，界面只读。现在它迁到 `sources.local.json` 的 `accounts`（两层：账号 + 字段），界面可以真正编辑。旧形状仍然可读（向后兼容），迁移前的原文件留在 `backup/`。
+
+> **0.7.0 的变化**：新增 `access` 使用边界（声明 `export-import` / `unsupported` 的库会被 `stash_fetch` 拒绝并只留痕）、
+> 新增取数台账 `ledger.ndjson` 与 `stash_ledger` 工具、`stash_doctor` 增加条目深度校验、
+> `stash_source_add` 在登记前拒收会导致取数失败的条目（URL 写错、`{credential:REF}` 没声明、`required` 没出现在请求里、`paths` 不是绝对路径）。
+> 全部是增量：**旧注册表不用改**，不写 `access` 只是会在体检里被提示补上。
 
 ## 加库的三种方式
 
@@ -162,6 +236,7 @@ ${DSH_HOME}/stash/
   kind: 'remote',
   handler: 'http',
   credentials: ['MY_API_KEY'],          // 只写引用名
+  access: 'official-api',               // 使用边界：public-api | official-api | export-import | unsupported
   actions: { query: '按关键词检索' },
   request: {
     url: 'https://api.example.com/search',
@@ -286,9 +361,14 @@ dsh-stash: pending (waiting for services: ...)
 
 ## 已知限制
 
-- 取数缓存无过期策略，改数据需传 `refresh: true`。
-- `stash_files` 的检索是子串匹配，不是语义检索；不做内容分析。
+- 取数缓存无过期策略，改数据需传 `refresh: true`。**台账里的 `fetchedAt` 是判断数据新旧的依据**：
+  它是老时间，说明你拿到的是旧缓存。
+- **台账只记指纹不记内容**，所以它不能替代 `corpus/`。想复现内容本身，仍然要靠缓存或人工导出件。
+- 台账目前只记 `source` / `action` / `params` 与结果指纹，**不记是哪个会话或哪个 agent 调的**。
+- `stash_files` 的检索是子串匹配，不是语义检索；不做内容分析。它就不该被当成"文库检索"用。
 - 给全新 API 加"通用取数"用 `handler: 'http'` 即可；只有当接口有特殊语义（翻页/聚合字段名/加密）时才需要写 handler 模块。
-- `stash_doctor` 只做本地检查，不联网。
+- `stash_doctor` 只做本地检查，不联网——它验证不了接口连通性，那是 `stash_fetch` 的事。
+- **不做通用网页抓取**：一次性检索交给 harness 的 `web_search` / `web_fetch`；
+  需要长期盯的页面本质是语料，走 `corpus/` + `stash_files`。再包一层是重复建设。
 - **凭据引用名无法枚举**：宿主凭据服务的"引用"半边按设计没有列表接口（配置界面靠 schema 得知引用名）。所以钥匙页显示的是**台账里的账号**与**注册表里声明过的引用名**的并集——只被库声明、台账里没登记的会合成一条占位账号，标 ⚠️ 并提供「补登记」。
 - **手写 `sources.mjs` 里的台账条目界面只读**：程序永不改写手写文件。想用界面编辑，就让条目住在 `sources.local.json`（默认落点）。
