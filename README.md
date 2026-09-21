@@ -1,5 +1,15 @@
 # dsh-stash —— 外接数据源的门禁、钥匙与台账
 
+![license](https://img.shields.io/badge/license-MIT-blue)
+![node](https://img.shields.io/badge/node-%3E%3D22-brightgreen)
+![tests](https://img.shields.io/badge/tests-153%20assertions-brightgreen)
+
+<!-- 推上 GitHub 后启用 CI 徽章（把 <owner> 换掉）： -->
+<!-- ![ci](https://github.com/<owner>/dsh-stash/actions/workflows/ci.yml/badge.svg) -->
+
+<!-- 截图占位：把「设置 → 钥匙」页截图存为 docs/keys-page.png，再启用下面这行 -->
+<!-- ![设置 → 钥匙](./docs/keys-page.png) -->
+
 让 agent 能取数，但看不到钥匙；能引用，但说不清来源就不算数。
 
 它把散落的外部数据库 / 资料库 / 文献库 / MCP 服务登记成**一组可检索的 Model Tool**，
@@ -195,7 +205,7 @@ harness 的会话日志保证"模型看到了什么"，它答不了"外部源当
 | 名字 | 是什么 | 怎么用 |
 |---|---|---|
 | `dsh-stash` | Profile Bundle id / 加载器行 | 只出现在「设置 → 插件清单」和 `cordis.yml` 里；**它本身没有动作可执行** |
-| `stash_catalog` 等 | 7 个 Model Tool | 模型调用 |
+| `stash_catalog` 等 | 8 个 Model Tool | 模型调用 |
 | `/stash` | 人类命令 | 你直接输入，不经模型 |
 | `stash` | 设置页的格子键（`settings.section` 的 id） | 「设置 → 钥匙」 |
 | `$DSH_HOME/stash/` | 数据目录 | 注册表与语料 |
@@ -365,6 +375,21 @@ dsh-stash: pending (waiting for services: ...)
 而**惰性获取**一个不存在的服务，只是那一次操作报错。所以本包的策略是：`inject` 只声明确实存在的 `slots`；凭据命名空间改为点击时用 `ctx.get("remote")` 取，取不到就给出可读提示。
 
 注意：`@deepseek-ai/dsh-client-ui-settings` / `@deepseek-ai/dsh-api-remotes` / `@deepseek-ai/dsh-client-locale` 这些**没有** `dsh.client` 声明——它们是**基线内核**（built into the shell），不是可依赖的动态客户端插件。把它们写进任何一个 `inject` 都是错的。
+
+## 开发与测试
+
+本包零依赖、零构建，测试是手写的 `check()` 断言 + 计数汇总，不引任何测试框架，直接跑：
+
+```powershell
+node test/host-assembly.mjs     # host 半边：94 项断言
+node test/client-runtime.mjs    # client 半边：59 项断言
+```
+
+两个文件都用 `os.tmpdir()` 下的临时目录做隔离，跑完自清理，不碰 `$DSH_HOME`。当前状态：**153 项断言全部通过**。
+
+`test/client-runtime.mjs` 存在的理由见上文踩坑记录第 3 条：`node --check` 抓不到「命名遮蔽导致 async `load()` 抛错」这类运行时错误，所以客户端半边必须真跑一遍渲染。
+
+CI 在 `.github/workflows/ci.yml`，node 22 / 24 各跑一遍。
 
 ## 已知限制
 
