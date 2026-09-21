@@ -406,6 +406,41 @@ if (lessonAdd && lessonList && lessonRemove && catalogTool) {
   check('删除时必须同时给 source 与 id', missingSource.ok === false)
 }
 
+// ── 手动录入：人直接编辑 lessons.json（与工具并列的另一条写入路径）──────────
+if (lessonAdd && lessonList && lessonRemove) {
+  const { LESSONS_FILE } = await import(new URL('../lib/home.js', import.meta.url))
+  const { writeFileSync } = await import('node:fs')
+
+  // 完全按"人手写"的样子：只给 title 与 body，没有 id / at / tags
+  writeFileSync(LESSONS_FILE, `${JSON.stringify({
+    trade_stats: [{ title: '手写的经验：只看 aggregateRecords', body: '我手敲进去的' }],
+  }, null, 2)}\n`, 'utf8')
+
+  const handListed = await lessonList.execute({ source: 'trade_stats' })
+  check('手写条目能被读出', handListed.ok === true && handListed.matched === 1, JSON.stringify(handListed).slice(0, 160))
+  const handId = handListed.groups[0]?.lessons[0]?.id
+  check('没给 id 的手写条目会派生一个 id', typeof handId === 'string' && handId.length === 12, String(handId))
+  const reread = await lessonList.execute({ source: 'trade_stats' })
+  check('派生 id 稳定（重读不变）', reread.groups[0]?.lessons[0]?.id === handId)
+
+  const handRemoved = await lessonRemove.execute({ source: 'trade_stats', id: handId })
+  check('手写条目能被工具删掉（与工具写的条目等价）', handRemoved.ok === true, JSON.stringify(handRemoved).slice(0, 160))
+  const emptyAfterHand = await lessonList.execute({})
+  check('删完手写条目后经验库为空', emptyAfterHand.matched === 0, String(emptyAfterHand.matched))
+
+  // 畸形手写条目只该被跳过并计数，不该让整个经验库读不出来
+  writeFileSync(LESSONS_FILE, `${JSON.stringify({ trade_stats: [{ title: '好的' }, { title: 123 }, 'x'] }, null, 2)}\n`, 'utf8')
+  const messy = await lessonList.execute({})
+  check('畸形手写条目被跳过而不是报错', messy.ok === true && messy.matched === 1 && messy.broken === 2, `matched=${messy.matched} broken=${messy.broken}`)
+
+  // 顶层不是对象时按空处理
+  writeFileSync(LESSONS_FILE, '[]\n', 'utf8')
+  const notObject = await lessonList.execute({})
+  check('顶层形状不对时按空经验库处理', notObject.ok === true && notObject.total === 0 && notObject.broken === 1, `total=${notObject.total} broken=${notObject.broken}`)
+
+  writeFileSync(LESSONS_FILE, '{}\n', 'utf8')
+}
+
 // ── 缓存寿命与响应头捕获（纯函数，不联网） ────────────────────────────────
 const { isFresh, pickHeaders } = await import(new URL('../lib/http.js', import.meta.url))
 

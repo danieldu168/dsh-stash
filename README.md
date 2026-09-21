@@ -2,7 +2,7 @@
 
 ![license](https://img.shields.io/badge/license-MIT-blue)
 ![node](https://img.shields.io/badge/node-%3E%3D22-brightgreen)
-![tests](https://img.shields.io/badge/tests-177%20assertions-brightgreen)
+![tests](https://img.shields.io/badge/tests-184%20assertions-brightgreen)
 
 <!-- 推上 GitHub 后启用 CI 徽章（把 <owner> 换掉）： -->
 <!-- ![ci](https://github.com/<owner>/dsh-stash/actions/workflows/ci.yml/badge.svg) -->
@@ -58,7 +58,7 @@ pnpm dsh plugin --profile web add "<新位置>/dsh-stash"
 | 方式 | 结果 | 适合 |
 |---|---|---|
 | **拷目录**（`link:`） | profile 软链到你的目录，改代码后重启即生效 | 自己用、还要继续改 |
-| **tarball**（`npm pack` 后 `add ./dsh-stash-0.6.0.tgz`） | pnpm 解包成**副本**，与源码解耦 | 给别人、固定版本 |
+| **tarball**（`npm pack` 后 `add ./dsh-stash-0.8.1.tgz`） | pnpm 解包成**副本**，与源码解耦 | 给别人、固定版本 |
 
 ### 二、数据：六块，处理方式不同
 
@@ -188,6 +188,17 @@ harness 的会话日志保证"模型看到了什么"，它答不了"外部源当
 ```
 
 `evidence` 通常填台账的 `ledgerId`——它把「这次踩的坑」和「这一次取数的留痕」接起来，于是"我当时试过、它这么返回"是可复现的。
+
+### 两条写入路径，地位相同
+
+| 谁 | 怎么写 | 说明 |
+|---|---|---|
+| **人** | 直接编辑 `lessons.json` | 通常只写 `title` 与 `body`；**没有 `id` 的条目会在读取时派生一个稳定 id**，于是它在 `stash_lesson_list` / `stash_lesson_remove` 面前与工具写的条目完全等价 |
+| **LLM** | `stash_lesson_add` / `stash_lesson_remove` | 走校验：密钥特征扫描、字段长度上限、每库 200 条上限 |
+
+⚠️ **工具一旦回写文件，排版会被规范化**（按库 id 排序、2 空格缩进、派生 id 落盘）。内容不会丢，但手工排版会被统一——这正是 `lessons.json` 与手写 `sources.mjs` 的区别：后者**程序永不改写**，前者是工具写、人可整理。
+
+手动写进去的内容**不过密钥特征扫描**（扫描只挂在 `addLesson` 上，即工具那条路）——但你写的是自己的明文文件，而经验库本就不该放口令。写坏了也不怕：`title` 不是字符串的条目会被跳过，并在 `broken` 计数里报出来。
 
 ### 三处会带出经验
 
@@ -429,13 +440,13 @@ dsh-stash: pending (waiting for services: ...)
 本包零依赖、零构建，测试是手写的 `check()` 断言 + 计数汇总，不引任何测试框架，直接跑：
 
 ```powershell
-node test/host-assembly.mjs     # host 半边：120 项断言
+node test/host-assembly.mjs     # host 半边：127 项断言
 node test/client-runtime.mjs    # client 半边：57 项断言
 ```
 
 `host-assembly.mjs` 跑在一个临时 `DSH_HOME`（`os.tmpdir()` 下）里，跑完自清理，**既不读也不写你真实的 `~/.dsh/`**；`client-runtime.mjs` 只读取 `client/client.js` 源码，用一个最小 React 运行时驱动它，不碰磁盘。
 
-当前状态：**host 120 项 + client 57 项 = 177 项断言全部通过**（0.7.1 时是 92 + 57 = 149）。
+当前状态：**host 127 项 + client 57 项 = 184 项断言全部通过**（0.7.1 时是 92 + 57 = 149）。
 
 `test/client-runtime.mjs` 存在的理由见上文踩坑记录第 3 条：`node --check` 抓不到「命名遮蔽导致 async `load()` 抛错」这类运行时错误，所以客户端半边必须真跑一遍渲染。
 
