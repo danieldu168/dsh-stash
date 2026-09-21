@@ -4,8 +4,7 @@
 ![node](https://img.shields.io/badge/node-%3E%3D22-brightgreen)
 ![tests](https://img.shields.io/badge/tests-184%20assertions-brightgreen)
 
-<!-- 推上 GitHub 后启用 CI 徽章（把 <owner> 换掉）： -->
-<!-- ![ci](https://github.com/<owner>/dsh-stash/actions/workflows/ci.yml/badge.svg) -->
+![ci](https://github.com/danieldu168/dsh-stash/actions/workflows/ci.yml/badge.svg)
 
 <!-- 截图占位：把「设置 → 钥匙」页截图存为 docs/keys-page.png，再启用下面这行 -->
 <!-- ![设置 → 钥匙](./docs/keys-page.png) -->
