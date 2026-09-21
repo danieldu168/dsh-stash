@@ -3,7 +3,7 @@
 # 安装（在 harness 源码目录执行，路径换成这份代码所在的实际目录）：
 #   pnpm dsh plugin --profile web add "<这份代码所在目录>"
 #   例：Windows "D:\dsh-stash" · macOS/Linux "~/code/dsh-stash"
-#   也可以用 tarball：pnpm dsh plugin --profile web add ./dsh-stash-0.8.1.tgz
+#   也可以用 tarball：pnpm dsh plugin --profile web add ./dsh-stash-0.9.0.tgz
 #
 # 安装即注册十一个 Model Tool：
 #   stash_catalog     列出已登记的库、覆盖范围、取数边界、凭据是否就绪、经验条数
