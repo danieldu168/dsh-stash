@@ -36,8 +36,8 @@ jobs:
             node --check "$f"
           done
 
-      - name: host 半边测试（94 项断言）
+      - name: host 半边测试（120 项断言）
         run: node test/host-assembly.mjs
 
-      - name: client 半边测试（59 项断言）
+      - name: client 半边测试（57 项断言）
         run: node test/client-runtime.mjs

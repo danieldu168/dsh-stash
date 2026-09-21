@@ -1,6 +1,6 @@
 {
   "name": "dsh-stash",
-  "version": "0.7.1",
+  "version": "0.8.0",
   "description": "外接数据源的门禁、钥匙与台账：把外部数据库/资料库/文献库登记成可检索的 Model Tool，声明每条库允许怎么取数，每次取数留一条只含指纹的台账（凭据值由宿主的 credentials 服务保管）。",
   "keywords": [
     "dsh",

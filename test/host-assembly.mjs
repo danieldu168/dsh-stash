@@ -61,7 +61,17 @@ try {
 }
 
 check('声明了 ctx.inject 依赖', injected.includes('webServer') && injected.includes('commands'), injected.join(', '))
-check('注册 8 个工具', tools.length === 8, tools.map((t) => t.name).join(', '))
+check('注册 11 个工具', tools.length === 11, tools.map((t) => t.name).join(', '))
+const REQUIRED_TOOLS = [
+  'stash_catalog', 'stash_fetch', 'stash_files', 'stash_ledger', 'stash_source_add', 'stash_doctor',
+  'stash_credential_add', 'stash_credential_remove',
+  'stash_lesson_add', 'stash_lesson_list', 'stash_lesson_remove',
+]
+check(
+  '每个必需工具都注册了',
+  REQUIRED_TOOLS.every((name) => tools.some((t) => t.name === name)),
+  REQUIRED_TOOLS.filter((name) => !tools.some((t) => t.name === name)).join(', ') || '齐全',
+)
 check('凭据路由已注册（经 ctx.inject）', registered.route?.path === '/stash/credentials', registered.route ? `${registered.route.kind} ${registered.route.path}` : '未注册')
 check('/stash 命令已注册（经 ctx.inject）', registered.command?.name === 'stash', registered.command?.name ?? '未注册')
 check('无启动告警', warns.length === 0, warns.join(' | '))
@@ -316,6 +326,84 @@ if (sourceAdd && fetchTool && ledgerTool) {
 
   const unknown = await ledgerTool.execute({ source: 'zz_no_such_library' })
   check('查未知库的台账返回空集而不是报错', unknown.ok === true && unknown.matched === 0)
+}
+
+// ── 经验库（0.8.0）：按库记「下次别再踩」的坑与正确写法 ──────────────────
+const lessonAdd = tools.find((t) => t.name === 'stash_lesson_add')
+const lessonList = tools.find((t) => t.name === 'stash_lesson_list')
+const lessonRemove = tools.find((t) => t.name === 'stash_lesson_remove')
+const catalogTool = tools.find((t) => t.name === 'stash_catalog')
+check('注册了 stash_lesson_add / list / remove', Boolean(lessonAdd) && Boolean(lessonList) && Boolean(lessonRemove))
+check(
+  '经验存在独立文件里（所以手写库也能记）',
+  (await import(new URL('../lib/home.js', import.meta.url))).LESSONS_FILE.endsWith('lessons.json'),
+)
+
+if (lessonAdd && lessonList && lessonRemove && catalogTool) {
+  const LESSON_TITLE = 'byProduct 的 records 是兄弟 HS 码，不是答案'
+  const added = await lessonAdd.execute({
+    source: 'trade_stats',
+    title: LESSON_TITLE,
+    body: '只读 aggregateRecords。实测返回 020220/020210。',
+    action: 'byProduct',
+    tags: ['口径'],
+    evidence: 'abc123def456',
+  })
+  // 关键点：trade_stats 住在手写的 sources.mjs 里——旧设计（经验挂库条目上）根本写不进去。
+  check('能给手写 sources.mjs 里的库记经验', added.ok === true, JSON.stringify(added).slice(0, 160))
+  check('返回经验条目 id（12 位）', typeof added.entry?.id === 'string' && added.entry.id.length === 12, String(added.entry?.id))
+  check('写入的是独立经验文件', typeof added.file === 'string' && added.file.endsWith('lessons.json'))
+
+  const unknownSource = await lessonAdd.execute({ source: 'zz_no_such_library', title: 'x' })
+  check('拒绝给未登记的库记经验', unknownSource.ok === false, unknownSource.error ?? '')
+
+  const noTitle = await lessonAdd.execute({ source: 'trade_stats' })
+  check('拒绝没有 title 的经验', noTitle.ok === false)
+
+  const leakLesson = await lessonAdd.execute({ source: 'trade_stats', title: 'x', body: 'sk-' + 'c'.repeat(30) })
+  check('经验正文命中密钥特征时拒绝写入', leakLesson.ok === false, leakLesson.error ?? '')
+
+  const listed = await lessonList.execute({ source: 'trade_stats' })
+  check('能读回刚记的经验', listed.ok === true && listed.matched === 1, JSON.stringify(listed).slice(0, 160))
+  check('读回条目字段完整', listed.groups[0]?.lessons[0]?.title === LESSON_TITLE && listed.groups[0]?.lessons[0]?.tags?.[0] === '口径')
+  check('经验 render 含标题', lessonList.output.render({}, listed).map((b) => b.text).join('\n').includes('兄弟 HS 码'))
+
+  const filtered = await lessonList.execute({ query: 'aggregaterecords' })
+  check('query 是子串匹配且不区分大小写', filtered.matched === 1, String(filtered.matched))
+  const miss = await lessonList.execute({ query: '绝不存在的字符串' })
+  check('query 无命中时返回空集而不是报错', miss.ok === true && miss.matched === 0)
+
+  // catalog 带出：全量清单只给条数与预览，单库查询才给全文（免得把经验库整个灌进上下文）
+  const all = await catalogTool.execute({})
+  const tradeStats = all.sources.find((s) => s.id === 'trade_stats')
+  check('catalog 全量清单带出经验条数', tradeStats?.lessons?.count === 1, JSON.stringify(tradeStats?.lessons).slice(0, 160))
+  check('catalog 全量清单不给全文', !tradeStats?.lessons?.entries)
+  check('catalog 全量清单给标题预览', tradeStats?.lessons?.latest?.[0]?.title === LESSON_TITLE)
+  const one = await catalogTool.execute({ id: 'trade_stats' })
+  check('catalog 单库查询给经验全文', one.sources[0]?.lessons?.entries?.[0]?.body?.includes('aggregateRecords') === true)
+  check('catalog render 出现经验行', catalogTool.output.render({}, all).map((b) => b.text).join('\n').includes('经验 1 条'))
+
+  // doctor：失败台账是证据、经验是结论；有证据没结论的库要点出来
+  const gapReport = await doctor.execute()
+  check('doctor 返回经验库统计', Boolean(gapReport.lessons) && gapReport.lessons.total === 1, JSON.stringify(gapReport.lessons))
+  check('doctor render 含经验库行', doctor.output.render({}, gapReport).map((b) => b.text).join('\n').includes('经验库'))
+  check(
+    'doctor 点出「有失败取数却没记经验」的库',
+    (gapReport.lessonGaps ?? []).some((gap) => gap.source === 'zz_boundary'),
+    JSON.stringify(gapReport.lessonGaps),
+  )
+  check('已记经验的库不进 gap 名单', !(gapReport.lessonGaps ?? []).some((gap) => gap.source === 'trade_stats'))
+  check('经验不参与 healthy 判定（只是提示）', typeof gapReport.healthy === 'boolean')
+
+  const removed = await lessonRemove.execute({ source: 'trade_stats', id: added.entry.id })
+  check('能删掉记错的经验', removed.ok === true, JSON.stringify(removed).slice(0, 160))
+  const afterRemove = await lessonList.execute({})
+  check('删除后读回为空', afterRemove.matched === 0, JSON.stringify(afterRemove).slice(0, 120))
+
+  const wrongId = await lessonRemove.execute({ source: 'trade_stats', id: 'nope' })
+  check('删不存在的 id 时返回可用 id 列表', wrongId.ok === false && Array.isArray(wrongId.available))
+  const missingSource = await lessonRemove.execute({ id: 'nope' })
+  check('删除时必须同时给 source 与 id', missingSource.ok === false)
 }
 
 // ── 缓存寿命与响应头捕获（纯函数，不联网） ────────────────────────────────

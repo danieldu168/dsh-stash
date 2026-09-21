@@ -2,7 +2,7 @@
 
 ![license](https://img.shields.io/badge/license-MIT-blue)
 ![node](https://img.shields.io/badge/node-%3E%3D22-brightgreen)
-![tests](https://img.shields.io/badge/tests-153%20assertions-brightgreen)
+![tests](https://img.shields.io/badge/tests-177%20assertions-brightgreen)
 
 <!-- 推上 GitHub 后启用 CI 徽章（把 <owner> 换掉）： -->
 <!-- ![ci](https://github.com/<owner>/dsh-stash/actions/workflows/ci.yml/badge.svg) -->
@@ -60,13 +60,14 @@ pnpm dsh plugin --profile web add "<新位置>/dsh-stash"
 | **拷目录**（`link:`） | profile 软链到你的目录，改代码后重启即生效 | 自己用、还要继续改 |
 | **tarball**（`npm pack` 后 `add ./dsh-stash-0.6.0.tgz`） | pnpm 解包成**副本**，与源码解耦 | 给别人、固定版本 |
 
-### 二、数据：四块，处理方式不同
+### 二、数据：六块，处理方式不同
 
 | 内容 | 位置 | 怎么办 |
 |---|---|---|
 | 库清单 | `$DSH_HOME/stash/sources.mjs` | 拷（可移植） |
 | 工具代写的库 **与钥匙台账** | `$DSH_HOME/stash/sources.local.json` | 拷（`accounts` 在这里） |
 | 取数台账 | `$DSH_HOME/stash/ledger.ndjson` | 按需拷（只含指纹，不含内容） |
+| 经验库 | `$DSH_HOME/stash/lessons.json` | 拷（这是你的判断，不是机器产物，**值得带走**） |
 | 原始语料 | `$DSH_HOME/stash/corpus/` | 按需拷（可能很大） |
 | 取数缓存 | `$DSH_HOME/stash/cache/` | **别拷**，会重建 |
 
@@ -103,6 +104,9 @@ mkdir -p "$DSH_HOME/stash" && cp sources.example.mjs "$DSH_HOME/stash/sources.mj
 | `stash_doctor` | 文库本地体检（不联网）：注册表、条目深度校验、目录可写、handler、凭据、路径、台账 |
 | `stash_credential_add` | **登记一条钥匙条目**（一个网站/API/MCP 服务 = 一条，下面挂若干字段）。没有 `value` 参数，永远不会有 |
 | `stash_credential_remove` | 删除代写的条目或字段（不动凭据库里的值） |
+| `stash_lesson_add` | **给某个库记一条经验**（踩过的坑、摸清的口径），写进 `lessons.json` |
+| `stash_lesson_list` | 读经验库：按库、按子串过滤 |
+| `stash_lesson_remove` | 删掉记错的或过时的经验 |
 
 ## 使用边界（`access`）
 
@@ -158,6 +162,49 @@ harness 的会话日志保证"模型看到了什么"，它答不了"外部源当
 
 文件是**有界追加**的 NDJSON：超过 2000 条时自动裁到最近 1000 条。
 
+## 经验库
+
+台账回答「取过什么」，注册表回答「这条库允许怎么取」，经验库回答第三个问题：**「这条库踩过什么坑、正确写法是什么」**。
+
+各库的坑本就不一样：贸易数据是口径陷阱，文献库是检索语法，MCP 服务是鉴权流程。所以 stash **不规定经验长什么样**——除 `title` 外全是可选字段，**不设分类、不设枚举**。判断内容属于使用它的人；stash 只提供存放、校验、按库带出的便利。
+
+| 工具 | 用途 |
+|---|---|
+| `stash_lesson_add` | 给某个库记一条经验（`title` 必填；`body` / `action` / `tags` / `evidence` 可选） |
+| `stash_lesson_list` | 读经验：按库、按子串过滤（**不是语义检索**） |
+| `stash_lesson_remove` | 删掉记错的或过时的（必须同时给 `source` 与 `id`——只给 id 会在多个库里误删） |
+
+存在 `$DSH_HOME/stash/lessons.json`，**按库 id 分组**：
+
+```jsonc
+{
+  "trade_stats": [
+    { "id": "l7f3a9c1", "at": "2026-09-21T…",
+      "title": "byProduct 的 records 是兄弟 HS 码，不是答案",
+      "body": "只读 aggregateRecords。实测返回 020220/020210。",
+      "action": "byProduct", "tags": ["口径"], "evidence": "d80b36b7553c" }
+  ]
+}
+```
+
+`evidence` 通常填台账的 `ledgerId`——它把「这次踩的坑」和「这一次取数的留痕」接起来，于是"我当时试过、它这么返回"是可复现的。
+
+### 三处会带出经验
+
+1. **`stash_catalog` 全量清单**：每条库显示**条数 + 最近 3 条标题**；**单库查询**（`id="trade_stats"`）才给**全文**——免得把整个经验库灌进上下文。
+2. **`stash_doctor`**：报经验库总量，并点出**有失败台账却没记经验**的库。失败是证据，经验是结论；有证据没结论的库，下次还会以同样方式失败一遍。
+3. **`stash_fetch` 失败时**：提示可以用 `stash_lesson_add` 记一条，`evidence` 填这次的 `ledgerId`。它只提示，不替你决定该不该记。
+
+### 为什么是独立文件，而不是挂在库条目的 `notes` 上
+
+**手写的 `sources.mjs` 永不被程序改写**，而现实里的库常常就住在手写文件里（本机就有这样的库）。经验若只能挂在库条目上，这批库就永远记不了经验——而它们恰恰是最需要记的。独立文件让**手写库与代写库一视同仁**。
+
+### 有界
+
+每个库最多 **200 条**，**到顶时拒绝写入而不是静默淘汰**——悄悄丢掉别人写下的教训，比报错糟糕得多。
+
+⚠️ 经验库是**明文文件**。正文与标签都会过一遍密钥特征扫描，命中即拒绝；但别刻意试探它。钥匙请走「设置 → 钥匙」。
+
 ## 钥匙台账（与库注册表是两个问题）
 
 | 清单 | 回答的问题 | 写在哪 |
@@ -205,7 +252,7 @@ harness 的会话日志保证"模型看到了什么"，它答不了"外部源当
 | 名字 | 是什么 | 怎么用 |
 |---|---|---|
 | `dsh-stash` | Profile Bundle id / 加载器行 | 只出现在「设置 → 插件清单」和 `cordis.yml` 里；**它本身没有动作可执行** |
-| `stash_catalog` 等 | 8 个 Model Tool | 模型调用 |
+| `stash_catalog` 等 | 11 个 Model Tool | 模型调用 |
 | `/stash` | 人类命令 | 你直接输入，不经模型 |
 | `stash` | 设置页的格子键（`settings.section` 的 id） | 「设置 → 钥匙」 |
 | `$DSH_HOME/stash/` | 数据目录 | 注册表与语料 |
@@ -219,6 +266,7 @@ ${DSH_HOME}/stash/
 ├── sources.mjs          ← 手写注册表（库清单 + 台账形状说明）。程序永不改写它
 ├── sources.local.json   ← 代写分片：{ sources: [...库...], accounts: [...账号台账...] }
 ├── ledger.ndjson        ← 取数台账，机器写（指纹，不是内容；可随时删，删了就没了历史）
+├── lessons.json         ← 经验库，工具写（按库 id 分组；人可自由整理）
 ├── cache/               ← 取数缓存，机器写（可随时删）
 ├── corpus/              ← 原始语料，你放（如数据库导出件）
 └── backup/              ← 迁移前留的 .bak（可随时删）
@@ -381,11 +429,13 @@ dsh-stash: pending (waiting for services: ...)
 本包零依赖、零构建，测试是手写的 `check()` 断言 + 计数汇总，不引任何测试框架，直接跑：
 
 ```powershell
-node test/host-assembly.mjs     # host 半边：94 项断言
-node test/client-runtime.mjs    # client 半边：59 项断言
+node test/host-assembly.mjs     # host 半边：120 项断言
+node test/client-runtime.mjs    # client 半边：57 项断言
 ```
 
-两个文件都用 `os.tmpdir()` 下的临时目录做隔离，跑完自清理，不碰 `$DSH_HOME`。当前状态：**153 项断言全部通过**。
+`host-assembly.mjs` 跑在一个临时 `DSH_HOME`（`os.tmpdir()` 下）里，跑完自清理，**既不读也不写你真实的 `~/.dsh/`**；`client-runtime.mjs` 只读取 `client/client.js` 源码，用一个最小 React 运行时驱动它，不碰磁盘。
+
+当前状态：**host 120 项 + client 57 项 = 177 项断言全部通过**（0.7.1 时是 92 + 57 = 149）。
 
 `test/client-runtime.mjs` 存在的理由见上文踩坑记录第 3 条：`node --check` 抓不到「命名遮蔽导致 async `load()` 抛错」这类运行时错误，所以客户端半边必须真跑一遍渲染。
 

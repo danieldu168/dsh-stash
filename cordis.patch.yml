@@ -3,24 +3,27 @@
 # 安装（在 harness 源码目录执行，路径换成这份代码所在的实际目录）：
 #   pnpm dsh plugin --profile web add "<这份代码所在目录>"
 #   例：Windows "D:\dsh-stash" · macOS/Linux "~/code/dsh-stash"
-#   也可以用 tarball：pnpm dsh plugin --profile web add ./dsh-stash-0.7.0.tgz
+#   也可以用 tarball：pnpm dsh plugin --profile web add ./dsh-stash-0.8.0.tgz
 #
-# 安装即注册八个 Model Tool：
-#   stash_catalog     列出已登记的库、覆盖范围、取数边界、凭据是否就绪
+# 安装即注册十一个 Model Tool：
+#   stash_catalog     列出已登记的库、覆盖范围、取数边界、凭据是否就绪、经验条数
 #   stash_fetch       按 source + action 确定性取数；越界只留痕不取数，返回 ledgerId
 #   stash_files       列出/检索已登记的本地语料（数据库导出件、文档、数据集等）
 #   stash_ledger      查取数台账（只记指纹不记内容）
+#   stash_lesson_add / stash_lesson_list / stash_lesson_remove
+#                     经验库：按库记"踩过的坑与正确写法"（独立于注册表，手写库同样能记）
 #   stash_source_add  在对话里登记新库，会让取数失败的条目当场拒收
-#   stash_doctor      文库本地体检（不联网），含条目深度校验
+#   stash_doctor      文库本地体检（不联网），含条目深度校验与"有失败却没记经验"提示
 #   stash_credential_add / stash_credential_remove  钥匙台账条目（永不含值）
 # 并在「设置 → 钥匙」加一页，用于录入/移除各库声明的凭据。
 #
 # 库清单不在这个文件里，而在用户可编辑的注册表：
 #   $DSH_HOME/stash/sources.mjs      ← 以后加库只改这里
-# 内容、缓存与台账落在：
+# 内容、缓存、台账与经验落在：
 #   $DSH_HOME/stash/cache/           ← 机器写（可删，会重建）
 #   $DSH_HOME/stash/corpus/          ← 你放导出的原始文件
 #   $DSH_HOME/stash/ledger.ndjson    ← 机器写（取数台账，只有指纹）
+#   $DSH_HOME/stash/lessons.json     ← 工具写（经验库，按库 id 分组；人可自由整理）
 #
 # 安全边界：本插件不把口令写进注册表。注册表只写凭据"引用名"（如 MY_API_KEY），
 # 值由 credentials 服务从 $DSH_HOME/.credentials.yaml 解析，且每次调用重新解析。
