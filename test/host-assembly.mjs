@@ -9,7 +9,8 @@
 //
 // 隔离：整个测试跑在一个临时 DSH_HOME 下，既不读也不写你真实的 ~/.dsh/stash。
 // 注册表用包内附带的 sources.example.mjs 种进去，所以这个脚本在别人机器上也能通过。
-import { copyFileSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -31,7 +32,9 @@ const check = (label, ok, detail = '') => results.push(`${ok ? '✅' : '❌'} ${
 const mod = await import(new URL('../lib/index.js', import.meta.url))
 
 const tools = []
-const registered = { route: null, command: null }
+const registered = { routes: {}, command: null }
+const promptSections = []
+const handlers = {}
 const warns = []
 const injected = []
 
@@ -42,13 +45,23 @@ const ctx = {
   inject: (deps, callback) => {
     injected.push(...deps)
     for (const dep of deps) {
-      if (dep === 'webServer') callback({ webServer: { register: (r) => { registered.route = r; return () => {} } } })
+      // 按路径收集：插件现在注册两条路由（凭据 + 迁移）。只存一条的话，
+      // 后注册的那条会把前一条盖掉，测试就会拿错路由去调。
+      if (dep === 'webServer') callback({ webServer: { register: (r) => { registered.routes[r.path] = r; return () => {} } } })
       if (dep === 'commands') callback({ commands: { register: (d) => { registered.command = d; return () => {} } } })
+      if (dep === 'systemPrompt') {
+        callback({
+          systemPrompt: {
+            getSectionOrder: () => 9900,
+            section: (definition) => { promptSections.push(definition); return () => {} },
+          },
+        })
+      }
     }
     return () => {}
   },
   tools: { register: (d) => { tools.push(d); return () => {} } },
-  on: () => {},
+  on: (event, handler) => { (handlers[event] ??= []).push(handler); return () => {} },
 }
 
 check('插件导出契约', mod.name === 'dsh-stash' && Array.isArray(mod.inject) && typeof mod.apply === 'function')
@@ -72,9 +85,145 @@ check(
   REQUIRED_TOOLS.every((name) => tools.some((t) => t.name === name)),
   REQUIRED_TOOLS.filter((name) => !tools.some((t) => t.name === name)).join(', ') || '齐全',
 )
-check('凭据路由已注册（经 ctx.inject）', registered.route?.path === '/stash/credentials', registered.route ? `${registered.route.kind} ${registered.route.path}` : '未注册')
+check('凭据路由已注册（经 ctx.inject）', registered.routes['/stash/credentials']?.path === '/stash/credentials', Object.keys(registered.routes).join(', ') || '未注册')
+check('迁移路由已注册（经 ctx.inject）', registered.routes['/stash/portability']?.path === '/stash/portability', Object.keys(registered.routes).join(', ') || '未注册')
 check('/stash 命令已注册（经 ctx.inject）', registered.command?.name === 'stash', registered.command?.name ?? '未注册')
+// ── 凭据落点：一处录入，两处一致 ─────────────────────────────────────────
+// 宿主有两个凭据存储（凭据服务 / .env），服务于两套消费协议。这几个函数是
+// 「值该放哪」的唯一权威——纯文件操作，直接打。
+const store = await import(new URL('../lib/credential-store.js', import.meta.url))
+const envPath = join(TEST_HOME, '.env')
+const readEnv = () => (existsSync(envPath) ? readFileSync(envPath, 'utf8') : '')
+
+check('envTargetOf：认 env: 落点', store.envTargetOf('env:MY_KEY') === 'MY_KEY')
+check('envTargetOf：非 env 落点返回 null', store.envTargetOf('header:apikey') === null && store.envTargetOf(null) === null)
+check('envTargetOf：非法键名也返回 null', store.envTargetOf('env:') === null && store.envTargetOf('env:1BAD') === null)
+
+writeFileSync(envPath, '# 注释\nUNRELATED=keep-me\n', 'utf8')
+// 1) env 落点且名字同引用名 → 写进 .env
+const mirrored = store.mirrorRefToEnv({ ref: 'MY_KEY', value: 'v1', inject: 'env:MY_KEY' })
+check('镜像：env 落点写进 .env', mirrored.written.includes('MY_KEY') && readEnv().includes('MY_KEY=v1'), JSON.stringify(mirrored))
+check('镜像：无关的键与注释原样保留', readEnv().includes('UNRELATED=keep-me') && readEnv().includes('# 注释'))
+check('镜像：env 落点要求重启', mirrored.pendingRestart === true)
+
+// 2) 非 env 落点 → 不写 .env，但清掉会遮蔽它的同名旧键
+writeFileSync(envPath, 'SHADOW=stale\nUNRELATED=keep-me\n', 'utf8')
+const cleaned = store.mirrorRefToEnv({ ref: 'SHADOW', value: 'v2', inject: 'header:apikey' })
+check('镜像：非 env 落点不写 .env', (cleaned.written ?? []).length === 0)
+check('镜像：清掉会遮蔽面板值的旧 .env 键', cleaned.removed.includes('SHADOW') && !readEnv().includes('SHADOW='), JSON.stringify(cleaned))
+check('镜像：清理时不动无关的键', readEnv().includes('UNRELATED=keep-me'))
+
+// 3) 落点名与引用名不同 → 写新名，清旧名
+writeFileSync(envPath, 'OLD_REF=stale\n', 'utf8')
+const renamed = store.mirrorRefToEnv({ ref: 'OLD_REF', value: 'v3', inject: 'env:NEW_NAME' })
+check(
+  '镜像：落点名变了时写新名、清旧名（不留幽灵值）',
+  renamed.written.includes('NEW_NAME') && renamed.removed.includes('OLD_REF')
+    && readEnv().includes('NEW_NAME=v3') && !readEnv().includes('OLD_REF='),
+  JSON.stringify(renamed),
+)
+
+// 4) 清除：引用名与落点名两个都清
+writeFileSync(envPath, 'BOTH_REF=a\nTARGET_NAME=b\nUNRELATED=keep-me\n', 'utf8')
+const cleared = store.clearRefFromEnv({ ref: 'BOTH_REF', inject: 'env:TARGET_NAME' })
+check(
+  '清除：引用名与落点名两个都清掉',
+  cleared.removed.includes('BOTH_REF') && cleared.removed.includes('TARGET_NAME')
+    && !readEnv().includes('BOTH_REF=') && !readEnv().includes('TARGET_NAME='),
+  JSON.stringify(cleared),
+)
+check('清除：不动无关的键', readEnv().includes('UNRELATED=keep-me'))
+
 check('无启动告警', warns.length === 0, warns.join(' | '))
+
+// ── 按需资源线索：agent/pre-step 上的条件注入 ─────────────────────────────
+// 位置的选取本身就是设计：这条接缝带着本轮用户的 messages（harness 注入 AGENTS.md 也用同一条），
+// 所以能**只在相关时**注入；systemPrompt.section 看不到用户说了什么，只能每步常驻。
+const prompt = await import(new URL('../lib/prompt.js', import.meta.url))
+const preSteps = handlers['agent/pre-step'] ?? []
+check('在 agent/pre-step 上注册了监听', preSteps.length === 1, String(preSteps.length))
+
+const userMessage = (text, id = 'm1') => ({
+  id, role: 'user', content: [{ type: 'text', text }], source: { kind: 'user' },
+})
+const enterDecision = (messages) => ({ kind: 'enter', messages })
+const runPreStep = async (payload, next) => preSteps[0](payload, next ?? (() => Promise.resolve(enterDecision(payload.messages ?? []))))
+
+// 纯函数层：从 claims 里只认用户真正说的那句话
+check(
+  '只认用户说的话，跳过 AGENTS.md 与本插件自己注入的消息',
+  prompt.latestUserText([
+    { id: 'a', role: 'user', content: [{ type: 'text', text: 'AGENTS 指令' }], source: { kind: 'agent-instructions' } },
+    { id: 'b', role: 'user', content: [{ type: 'text', text: '帮我查一下数据' }], source: { kind: 'user' } },
+    { id: 'c', role: 'user', content: [{ type: 'text', text: '我自己注入的' }], source: { kind: prompt.INJECTION_SOURCE_KIND } },
+  ]) === '帮我查一下数据',
+)
+check('没有任何用户消息时返回空串', prompt.latestUserText([{ id: 'a', role: 'user', content: [], source: { kind: 'user' } }]) === '')
+
+const LIB = [
+  { id: 'trade_stats', name: '贸易统计', access: 'official-api', credentials: [{ ref: 'TRADE_KEY', inject: 'header:X-Api-Key' }] },
+  { id: 'paid_db', name: '需人工导出的库', access: 'export-import' },
+]
+check('命中库 id 时认出那几条', prompt.matchLibraries('trade_stats 里那个数是多少', LIB).map((s) => s.id).join(',') === 'trade_stats')
+check('命中中文名时也认出', prompt.matchLibraries('帮我看看贸易统计', LIB).map((s) => s.id).join(',') === 'trade_stats')
+check('都没提到时不认', prompt.matchLibraries('今天天气怎么样', LIB).length === 0)
+
+check('无意图 → 不注入（返回 null）', prompt.composeInjection('今天天气怎么样', { sources: LIB }) === null)
+// 这两条是实测误报的原话：讨论界面分类时写了"API 密钥 Y"和"具体统计数据"，
+// 旧触发词把裸名词也算作取数意图，于是往上下文里塞了一段资源线索。
+check(
+  '裸名词不再误触发（"API密钥Y" 是真实误报的原话）',
+  prompt.composeInjection('而是总数、其中：网站账号X、API密钥Y......；注意，未完成配置Z', { sources: LIB }) === null,
+)
+check('"具体统计数据" 也不再触发', prompt.composeInjection('点击X、Y、Z等具体统计数据，就可以到L2界面了', { sources: LIB }) === null)
+check('带动作的短语仍然触发（收紧不能收死）', prompt.composeInjection('帮我查一下数据', { sources: LIB }) !== null)
+check('库 id 这条高精度路径不受影响', prompt.composeInjection('trade_stats 里那个数是多少', { sources: LIB }) !== null)
+const intentText = prompt.composeInjection('帮我把外部数据取一下', { sources: LIB, ledger: { records: 2, failed: 0 } })
+check('有取数意图 → 注入通用线索', typeof intentText === 'string' && intentText.includes('已登记 2 条'), String(intentText).split('\n')[0])
+const hitText = prompt.composeInjection('trade_stats 里那个数是多少', { sources: LIB })
+check(
+  '点到具体库 → 注入那几条的要点（含边界与凭据落点）',
+  typeof hitText === 'string' && hitText.includes('trade_stats') && hitText.includes('official-api')
+    && hitText.includes('header:X-Api-Key') && hitText.includes('stash_fetch'),
+  String(hitText),
+)
+check(
+  '点到越界的库时点明它取不了',
+  String(prompt.composeInjection('paid_db 有数据吗', { sources: LIB })).includes('只能人工导出'),
+)
+check('快照没就绪时绝不注入', prompt.composeInjection('帮我取外部数据', { sources: null, ledger: null }) === null)
+
+// 监听器层：拿一个可控的 load，避免依赖异步读盘
+const disposePrompt = prompt.registerStashPrompt(
+  { on: (event, handler) => { (handlers[`test:${event}`] ??= []).push(handler); return () => {} } },
+  { warn: () => {}, load: async () => ({ sources: LIB, ledger: { records: 0, failed: 0 } }) },
+)
+const testPreStep = handlers['test:agent/pre-step'][0]
+// 真实 harness 的 waterfall 一定会传 next；测试里照做，返回默认的 enter 决定。
+const drive = (payload, decision) => testPreStep(
+  payload,
+  () => Promise.resolve(decision ?? { kind: 'enter', messages: payload.messages ?? [] }),
+)
+await new Promise((resolve) => setTimeout(resolve, 10)) // 等快照就绪
+
+const irrelevant = await drive({ messages: [userMessage('今天天气怎么样')] })
+check('监听器：不相关的一轮原样返回，不注入', irrelevant.messages.length === 1, JSON.stringify(irrelevant.messages.length))
+
+const relevant = await drive({ messages: [userMessage('帮我取一下 trade_stats 的数据')] })
+check(
+  '监听器：相关的一轮追加一条线索消息',
+  relevant.messages.length === 2 && relevant.messages[1].role === 'user'
+    && relevant.messages[1].content[0].text.includes('trade_stats')
+    && relevant.messages[1].source.kind === prompt.INJECTION_SOURCE_KIND,
+  JSON.stringify(relevant.messages[1]?.content?.[0]?.text ?? '').slice(0, 160),
+)
+
+const repeat = await drive({ messages: [userMessage('帮我取一下 trade_stats 的数据')] })
+check('监听器：同一条用户消息不会重复注入', repeat.messages.length === 1, String(repeat.messages.length))
+
+const rejected = await runPreStep({ messages: [userMessage('帮我取数')] }, () => Promise.resolve({ kind: 'reject' }))
+check('监听器：拒绝的决定原样返回，不注入', rejected.kind === 'reject')
+void disposePrompt
 
 // ── 路由工具 ──────────────────────────────────────────────────────────────
 const makeReq = (method, url, body) => {
@@ -92,12 +241,48 @@ const makeReq = (method, url, body) => {
 }
 const callRaw = async (method, url, body) => {
   let raw = null
-  await registered.route.handler(makeReq(method, url, body), { writeHead: () => {}, end: (b) => { raw = b } })
+  await registered.routes['/stash/credentials'].handler(makeReq(method, url, body), { writeHead: () => {}, end: (b) => { raw = b } })
   return raw
 }
 const callRoute = async (method, url, body) => {
   try { return JSON.parse(await callRaw(method, url, body)) } catch { return null }
 }
+
+// ── 迁移端点：/stash/portability ────────────────────────────────────────
+const callPort = async (method, url, body) =>
+  registered.routes['/stash/portability'].handler(
+    makeReq(method, url, body),
+    { writeHead: () => {}, end: (b) => { portRaw = b } },
+  )
+let portRaw = null
+const portRoute = async (method, action, body) => {
+  portRaw = null
+  const url = action ? `/stash/portability?action=${action}` : '/stash/portability'
+  await callPort(method, url, body === undefined ? null : JSON.stringify(body))
+  try { return JSON.parse(portRaw) } catch { return null }
+}
+
+const portStatus = await portRoute('GET')
+check('迁移端点 GET 报状态', portStatus?.ok === true && typeof portStatus.defaultExportDir === 'string', JSON.stringify(portStatus).slice(0, 120))
+check('迁移端点 GET 报有没有导出记录', portStatus?.hasExportRecord === false && Array.isArray(portStatus.recent))
+// 这条是安全约束：GET 若把校验码回给界面，清空的门槛就形同虚设。
+check('⚠ 迁移端点 GET **不回**校验码', !JSON.stringify(portStatus ?? {}).includes('verifyCode'), '返回里出现了 verifyCode')
+
+const portUnknown = await portRoute('POST', 'nope', {})
+check('未知 action 被拒', portUnknown?.ok === false && String(portUnknown.error).includes('不认识的 action'))
+
+const portNoDir = await portRoute('POST', 'import', {})
+check('导入缺目录时明确报错，并说明浏览器拿不到本地路径', portNoDir?.ok === false && String(portNoDir.hint).includes('浏览器拿不到本地路径'), String(portNoDir?.hint))
+
+const portPlanNoExport = await portRoute('POST', 'plan-wipe', {})
+check('没有导出记录时清空被拒（顺序铁律在 host 侧，不靠 UI 禁用）', portPlanNoExport?.ok === false, JSON.stringify(portPlanNoExport).slice(0, 160))
+check('⚠ 迁移端点 plan-wipe 也不回校验码', !JSON.stringify(portPlanNoExport ?? {}).includes('verifyCode'))
+
+const portWipeNoConfirm = await portRoute('POST', 'wipe', {})
+check('清空不带校验码时被拒', portWipeNoConfirm?.ok === false, JSON.stringify(portWipeNoConfirm).slice(0, 160))
+
+const portMethod = await portRoute('DELETE')
+check('迁移端点不支持的方法返回 ok:false', portMethod?.ok === false)
 const TEST_ID = 'zz_test_account'
 
 // ── GET：账号 + 字段两层模型 ───────────────────────────────────────────────
@@ -192,6 +377,18 @@ check('删字段后账号仍在（剩 1 个字段）', ((afterFieldDelete?.accou
 const removedAccount = await callRoute('DELETE', `/stash/credentials?id=${TEST_ID}&force=1`, null)
 check('DELETE 整条账号', removedAccount?.ok === true, JSON.stringify(removedAccount))
 
+// ── 镜像端点：只送引用名，值由宿主自己读 ─────────────────────────────────
+const mirrorBadRef = await callRoute('POST', '/stash/credentials?mirror=sync', JSON.stringify({}))
+check('镜像端点：缺 ref 时拒绝', mirrorBadRef?.ok === false && String(mirrorBadRef.error).includes('ref'), JSON.stringify(mirrorBadRef))
+const mirrorNoService = await callRoute('POST', '/stash/credentials?mirror=sync', JSON.stringify({ ref: 'ZZ_MIRROR_PROBE' }))
+check(
+  '镜像端点：本部署没有凭据服务时明确报错，而不是静默',
+  mirrorNoService?.ok === false && String(mirrorNoService.error).includes('凭据服务'),
+  JSON.stringify(mirrorNoService),
+)
+const mirrorClear = await callRoute('POST', '/stash/credentials?mirror=clear', JSON.stringify({ ref: 'ZZ_MIRROR_PROBE' }))
+check('镜像端点：清除路径不需要凭据服务', mirrorClear?.ok === true && mirrorClear.action === 'clear', JSON.stringify(mirrorClear))
+
 const removedLegacy = await callRoute('DELETE', '/stash/credentials?ref=ZZ_TEST_LEGACY&force=1', null)
 check('DELETE 旧形状条目', removedLegacy?.ok === true)
 
@@ -273,6 +470,27 @@ if (doctor) {
   if (credRemove) await credRemove.execute({ id: 'zz_doctor_account' })
 }
 
+// ── 输出边界自检 ──────────────────────────────────────────────────────────
+// 宿主要求工具输出是 lossless JSON（core/tools 在边界处跑这条校验）：`undefined`、
+// 非有限数、类实例都会让**整份输出**被拒收，调用方只看到一句 "value is not lossless JSON"，
+// 插件精心组织的 error / hint / body 全丢。这里复刻那条规则，用来锁住"失败路径也要过边界"。
+// 注意 JSON.stringify 不能替代它——它会把 undefined 字段静默丢掉，于是断言照样通过。
+const isLossless = (value) => {
+  if (value === null) return true
+  const type = typeof value
+  if (type === 'string' || type === 'boolean') return true
+  if (type === 'number') return Number.isFinite(value)
+  if (type !== 'object') return false
+  if (Array.isArray(value)) return value.every(isLossless)
+  const proto = Object.getPrototypeOf(value)
+  if (proto !== null && proto !== Object.prototype) return false
+  return Object.values(value).every(isLossless)
+}
+check(
+  '边界自检自身可靠：识破 undefined 字段、不误伤 null',
+  isLossless({ a: undefined }) === false && isLossless({ a: null, b: [1, 'x', true] }) === true,
+)
+
 // ── 使用边界 + 取数台账 ──────────────────────────────────────────────────
 const sourceAdd = tools.find((t) => t.name === 'stash_source_add')
 const fetchTool = tools.find((t) => t.name === 'stash_fetch')
@@ -326,6 +544,93 @@ if (sourceAdd && fetchTool && ledgerTool) {
 
   const unknown = await ledgerTool.execute({ source: 'zz_no_such_library' })
   check('查未知库的台账返回空集而不是报错', unknown.ok === true && unknown.matched === 0)
+
+  // ── 失败路径必须过输出边界 ─────────────────────────────────────────────
+  // 回归背景：summaryText 曾在失败时被写成 undefined，而 undefined 不是 lossless JSON，
+  // 宿主于是拒收**整份输出**，调用方只拿到一句 "value is not lossless JSON"，
+  // kind / error / hint / body / ledgerId 全丢——失败路径恰恰最需要这些字段。
+  // 触发手段：声明一个必填参数 query，调用时不传。handler 在发请求之前就返回结构化失败
+  // （handlers/http.js 的必填参数前置校验），走的正是当初坏掉的那条 `return { ...result }`。
+  // 特意不声明凭据——那会合成一条占位账号，让清场谓词判它没清干净。全程离线、不联网。
+  const offline = await sourceAdd.execute({
+    id: 'zz_offline', name: 'ZZ 离线失败库', kind: 'remote', handler: 'http', access: 'public-api',
+    request: { url: 'https://example.com/never-called', query: { q: '{query}' }, required: ['query'] },
+  })
+  check('能登记一条声明了必填参数的库', offline.ok === true, JSON.stringify(offline).slice(0, 160))
+
+  const offlineFetch = await fetchTool.execute({ source: 'zz_offline', action: 'search' })
+  check(
+    '取数失败返回结构化失败而不是抛',
+    offlineFetch.ok === false && typeof offlineFetch.error === 'string',
+    JSON.stringify(offlineFetch).slice(0, 160),
+  )
+  check('失败结果的 summaryText 是 null 而不是 undefined', offlineFetch.summaryText === null)
+  check(
+    '失败结果通过 lossless JSON 边界',
+    isLossless(offlineFetch),
+    Object.keys(offlineFetch).filter((k) => offlineFetch[k] === undefined).join(', ') || '无 undefined 字段',
+  )
+  check(
+    '失败也不丢 ledgerId',
+    typeof offlineFetch.ledgerId === 'string' && offlineFetch.ledgerId.length === 12,
+    String(offlineFetch.ledgerId),
+  )
+
+  // 上游正文（handlers/http.js 已截断到 400 字符）必须带到渲染层
+  const failedRender = fetchTool.output.render(
+    { source: 'zz_offline', action: 'search' },
+    {
+      ok: false, kind: 'http', error: 'HTTP 400', hint: '通用提示',
+      body: '{"code":"42703","message":"column cases.slug does not exist"}', ledgerId: 'abc123def456',
+    },
+  ).map((b) => b.text).join('\n')
+  check('失败渲染带出上游正文', failedRender.includes('42703') && failedRender.includes('上游正文'), failedRender.replace(/\n/g, ' | '))
+  check('没有正文时渲染不多出一行', !fetchTool.output.render({}, { ok: false, kind: 'http', error: 'HTTP 400' })
+    .map((b) => b.text).join('\n').includes('上游正文'))
+
+  // ── 可选占位符 {?name}：缺参数时整键丢弃，而不是代入空串 ────────────────
+  // 用本机回环起一个临时服务（不是外网），直接断言**真正发出去的查询串**。
+  // 背景：`eq.{category}` 在缺参数时代入成 `eq.`，看着合法、实际必被上游拒；
+  // 而"可选过滤器"用 required 表达不了（那会把它变成必填）。
+  const seenUrls = []
+  const probe = createServer((req, res) => {
+    seenUrls.push(req.url)
+    res.writeHead(200, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify({ items: [{ ok: true }] }))
+  })
+  await new Promise((resolve) => probe.listen(0, '127.0.0.1', resolve))
+  const probePort = probe.address().port
+
+  const optionalSource = await sourceAdd.execute({
+    id: 'zz_optional', name: 'ZZ 可选参数库', kind: 'remote', handler: 'http', access: 'public-api',
+    request: { url: `http://127.0.0.1:${probePort}/search`, query: { filter: 'eq.{?category}' }, pick: 'items' },
+  })
+  check('能登记带可选占位符 {?name} 的库', optionalSource.ok === true, JSON.stringify(optionalSource).slice(0, 200))
+
+  const misplaced = await sourceAdd.execute({
+    id: 'zz_optional_bad', name: 'x', kind: 'remote', handler: 'http', access: 'public-api',
+    request: { url: 'https://example.com/{?id}' },
+  })
+  check('可选占位符用在 query 之外时，登记即拒收', misplaced.ok === false, misplaced.error ?? '')
+
+  await fetchTool.execute({ source: 'zz_optional', action: 'search' })
+  check(
+    '缺参数时整键丢弃（不发 filter=eq. 那种畸形串）',
+    seenUrls[0] !== undefined && !seenUrls[0].includes('filter='),
+    String(seenUrls[0]),
+  )
+
+  await fetchTool.execute({ source: 'zz_optional', action: 'search', params: { category: 'case_study' } })
+  check(
+    '给了参数时按普通占位符代入',
+    String(seenUrls[1]).includes('filter=eq.case_study'),
+    String(seenUrls[1]),
+  )
+
+  await fetchTool.execute({ source: 'zz_optional', action: 'search', params: { category: '' } })
+  check('参数是空串也按缺参数处理（整键丢弃）', !String(seenUrls[2]).includes('filter='), String(seenUrls[2]))
+
+  await new Promise((resolve) => probe.close(resolve))
 }
 
 // ── 经验库（0.8.0）：按库记「下次别再踩」的坑与正确写法 ──────────────────
