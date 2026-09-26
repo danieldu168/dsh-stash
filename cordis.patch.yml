@@ -3,7 +3,7 @@
 # 安装（在 harness 源码目录执行，路径换成这份代码所在的实际目录）：
 #   pnpm dsh plugin --profile web add "<这份代码所在目录>"
 #   例：Windows "D:\dsh-stash" · macOS/Linux "~/code/dsh-stash"
-#   也可以用 tarball：pnpm dsh plugin --profile web add ./dsh-stash-0.9.0.tgz
+#   也可以用 tarball：pnpm dsh plugin --profile web add ./dsh-stash-0.10.0.tgz
 #
 # 安装即注册十一个 Model Tool：
 #   stash_catalog     列出已登记的库、覆盖范围、取数边界、凭据是否就绪、经验条数
@@ -15,7 +15,8 @@
 #   stash_source_add  在对话里登记新库，会让取数失败的条目当场拒收
 #   stash_doctor      文库本地体检（不联网），含条目深度校验与"有失败却没记经验"提示
 #   stash_credential_add / stash_credential_remove  钥匙台账条目（永不含值）
-# 并在「设置 → 钥匙」加一页，用于录入/移除各库声明的凭据。
+# 并在「设置 → 钥匙」加一页，分三层（概览 / 清单 / 账号）用于录入与移除凭据；
+# 页底折叠的「迁移」区块可导出、导入、清空整库，与 /stash 命令调同一批函数。
 #
 # 库清单不在这个文件里，而在用户可编辑的注册表：
 #   $DSH_HOME/stash/sources.mjs      ← 以后加库只改这里

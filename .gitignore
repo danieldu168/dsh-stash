@@ -4,6 +4,8 @@ _probe*.mjs
 _smoke*.mjs
 _regress*.mjs
 _verify*.mjs
+# 冒烟/探针脚本也常用 `xxx-tmp.mjs` 这种中缀命名，一并挡住
+*tmp*.mjs
 
 # 打包产物
 *.tgz
