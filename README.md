@@ -84,6 +84,24 @@ pnpm dsh plugin --profile web remove dsh-stash
 
 本包零依赖、零构建脚本，`private: true`（只发 GitHub）。换机器拷目录即可：所有路径由 `DSH_HOME` / `os.homedir()` 派生，没有机器专属硬编码。
 
+### 已经装了，怎么升级？
+
+DSH 没有"升级"这个动作。`plugin_manager` 只有四类动作——列举、启停、安装、移除，没有 update。**升级就是拿新版本重新装一次，再重启 Profile。**
+
+有个坑值得先说。装完之后，管理器靠比对 `package.json` 里这个包的依赖串前后有没有变化，来判断这次装上了哪个包。**串没变，它就认为什么都没装成**，报 `ambiguous-install`，并把 `package.json` 同 `pnpm-lock.yaml` 一起还原。所以升级时让规格字符串动一下——**带上 tag**：
+
+```powershell
+pnpm dsh plugin --profile web add "github:danieldu168/dsh-stash#v0.11.0"
+```
+
+不带 tag 的 `github:danieldu168/dsh-stash` 只适合首次安装；升级时它一个字符都不变，正好踩上面那条。
+
+如果你是从本机目录装的（依赖里是 `link:`），那就没有版本可升——`git pull` 完重启 Profile 就是最新版。
+
+重启 Profile 之后新的 host 代码才装载；浏览器那一半硬刷新即可。
+
+> 收录进 [awesome-dsh-plugin](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin) 之后，用插件市场装的用户不必记这些：市场会逐插件比对 npm 版本或锁定 commit 与 HEAD，给出待更新行与一键更新，更新完同样提示重启。
+
 ### 目录长什么样
 
 ```
