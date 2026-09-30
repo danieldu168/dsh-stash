@@ -1,4 +1,4 @@
-﻿# dsh-stash —— DSH 链接外部资源库的钥匙串
+# dsh-stash —— DSH 链接外部资源库的钥匙串
 
 ![license](https://img.shields.io/badge/license-MIT-blue)
 ![node](https://img.shields.io/badge/node-%3E%3D22-brightgreen)
@@ -15,9 +15,9 @@
 
 ## 它回答三个问题
 
-您会问：DSH 已经能连 MCP/API，也能上网查，再包一层，是不是重复建设？
+您会问：DSH 已经能连 MCP、能调 API，也能上网查，再包一层，是不是重复建设？
 
-MCP/API 只回答"连得上"。留下三问没有归属——**能不能取、用哪把钥匙、这次取了什么**。没有人回答这三问，代价就是每次会话从零交代一遍。
+连得上、调得通，不等于管得住取数。留下三问没有归属——**能不能取、用哪把钥匙、这次取了什么**。没有人回答这三问，代价就是每次会话从零交代一遍。
 
 stash 就是这三问的归宿：
 
