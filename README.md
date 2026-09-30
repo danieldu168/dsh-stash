@@ -5,7 +5,7 @@
 ![tests](https://img.shields.io/badge/tests-606%20assertions-brightgreen)
 ![ci](https://github.com/danieldu168/dsh-stash/actions/workflows/ci.yml/badge.svg)
 
-我在三台机器上用 DSH：家里的、公司的、还有一台旧的。
+常用有三台电脑：家里的、公司的、还有一台旧的。
 
 常用的数据库、资料库，十几个起步。每换一台机器，就得重新交代一遍——哪个接口、要哪把钥匙、上次那个数字是从哪儿来的。交代完过两个星期，自己都记不清了。
 
@@ -15,7 +15,7 @@
 
 ## 它回答三个问题
 
-有人会问：DSH 已经能连 MCP，也能上网查，再包一层，是不是重复建设？
+您会问：DSH 已经能连 MCP，也能上网查，再包一层，是不是重复建设？
 
 MCP 只回答"连得上"。留下三问没有归属——**能不能取、用哪把钥匙、这次取了什么**。没有人回答这三问，代价就是每次会话从零交代一遍。
 
@@ -29,7 +29,7 @@ stash 就是这三问的归宿：
 
 对模型暴露 11 个工具（取数 / 清单 / 台账 / 体检 / 登记 / 经验）。另有两条路不经过模型：`/stash` 命令同「设置 → stash」面板。
 
-## 装
+## 如何安装
 
 ```powershell
 pnpm dsh plugin --profile web add "github:danieldu168/dsh-stash#v0.11.0"
@@ -47,7 +47,7 @@ pnpm dsh plugin --profile web remove dsh-stash
 
 本包零依赖、零构建脚本，`private: true`，只发 GitHub。路径全部由 `DSH_HOME` / `os.homedir()` 派生，没有机器专属硬编码。
 
-## 登记第一条
+## 如何登记
 
 注册表是 `${DSH_HOME}/stash/sources.mjs`。一条库 = 数组里一个对象。改完不用重启，每次调用重读。
 
@@ -109,7 +109,7 @@ export default [
 
 **落点写错的表现是「面板一片绿、功能却是断的」。**
 
-## 面板
+## 工作面板
 
 `设置 → stash`。三层：首页 → 类层 → 详情。逐条说明见 [`DESIGN-panel.md`](DESIGN-panel.md)。
 
@@ -140,7 +140,7 @@ export default [
 
 经验没有面板入口是刻意的。经验是判断，不是事实；自动生成的多半是噪音。系统只做一件能做的——**把缺口点出来**：哪条库失败过却没记经验。
 
-## 换机器
+## 如何迁移
 
 三条命令，都不经过模型：
 
@@ -180,7 +180,7 @@ export default [
 
 **凭据的完整视图。** 凭据服务的引用半边按设计没有列表接口，面板显示的是台账同注册表声明过的引用名的并集。`/stash wipe` 的删除范围同此限。
 
-## 目录长什么样
+## 框架目录
 
 ```
 ${DSH_HOME}/stash/
@@ -196,7 +196,7 @@ ${DSH_HOME}/stash/
 
 两份注册表合并使用，同 id 以手写文件为准。
 
-## 开发同测试
+## 开发测试
 
 零依赖、零构建，手写的 `check()` 断言，不引测试框架。
 
