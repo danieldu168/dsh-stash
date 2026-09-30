@@ -1,4 +1,4 @@
-# dsh-stash —— 个人在 DSH 里的外部资源库
+﻿# dsh-stash —— 个人在 DSH 里的外部资源库
 
 ![license](https://img.shields.io/badge/license-MIT-blue)
 ![node](https://img.shields.io/badge/node-%3E%3D22-brightgreen)
@@ -19,16 +19,22 @@
 
 工作生活要用的外部数据源，连同「允许怎么取、要哪把钥匙、取到了什么、踩过什么坑」，一起登记到 `${DSH_HOME}/stash/` 一个目录里。
 
-登记的**资源**分两类：
+登记的**资源**按**形态**分（完整分类与穷尽性论证见 [`DESIGN-taxonomy.md`](DESIGN-taxonomy.md)）：
 
-- **远程接口**（`kind: "remote"`）——公开 JSON、要授权的 API
-- **本机文件**（`kind: "files"`）——导出的 PDF、数据库导出件
+| 形态 | 登记写法 | 怎么用 |
+|---|---|---|
+| 声明式 HTTP 端点 | `kind: "remote"` + `handler: "http"` | `stash_fetch` |
+| 内置专用处理器（贸易统计 / 政策通报） | `kind: "remote"` + 对应 `handler` | `stash_fetch` |
+| **本地数据库（SQLite，只读单查询）** | `kind: "remote"` + `handler: "db"` | `stash_fetch` |
+| **对象存储 / 文件传输（S3、WebDAV）** | `kind: "remote"` + `handler: "objstore"` | `stash_fetch` |
+| **本地语料** | `kind: "files"` | `stash_files` 检索 + `read` |
+| **MCP 服务**（只登记，不代为取数） | `kind: "mcp"` | 用 DSH 直连 `mcp__<server>__<tool>` |
 
 资源之外还管着四样**记录**：钥匙台账、取数台账、经验库，加上该库允许怎么取的那份声明。
 
 对模型暴露 11 个工具：取数（`stash_fetch`）、看有什么（`stash_catalog` / `stash_files`）、查历史（`stash_ledger`）、体检（`stash_doctor`）、登记（`stash_source_add` / `stash_credential_add` / `stash_credential_remove`）、经验（`stash_lesson_add` / `_list` / `_remove`）。
 
-另外两个入口不经过模型：`/stash` 命令行，同「设置 → 钥匙」页。
+另外两个入口不经过模型：`/stash` 命令行，同「设置 → stash」面板。
 
 它装在 Profile 层，每个新会话自动可用，不用切 preset。拷走 `${DSH_HOME}/stash/` 这个目录，换机器就完了。
 
@@ -206,7 +212,7 @@ export default [
 | `access` | 含义 | 行为 |
 |---|---|---|
 | `public-api` | 公开免登录接口 | 正常取数 |
-| `official-api` | 需官方 API 或授权凭据 | 正常取数（凭据在「设置 → 钥匙」配） |
+| `official-api` | 需官方 API 或授权凭据 | 正常取数（凭据在「设置 → stash › 远端接口 › 账号」里配） |
 | `export-import` | 只允许人工在网页端导出后放进 `corpus/` | **拒绝**，返回 `kind:"boundary"` 并留痕 |
 | `unsupported` | 明确不做（条款禁止、需绕过访问控制） | **拒绝**，同上 |
 
@@ -278,34 +284,111 @@ export default [
 
 落点写错的表现是「面板一片绿、功能却是断的」。
 
-### 面板分三层
+### 面板结构：一页首页 + 两层下钻
+
+面板名就是插件名：**stash**（`设置 → stash`）。落地页是**首页**，**数字优先**——一页就能回答"我有多少、坏了几条"：
 
 ```
-L1 概览   钥匙总数 · 其中按账号类别 · 注意（未完成配置 N 把）
-  │       每个数字都能点，点了带筛选进 L2
-  ▼
-L2 清单   筛选器（全部 / 未配置 / 已配置 / 未登记）+ 按分类分箱的账号卡
-  ▼
-L3 账号   字段列表、更换值、移除值（二次确认）、编辑信息、删除条目
+                            ＋ 新建条目
+资源
+  13   资源总数                        ● 12 就绪   ● 1 有阻塞 →
+  6            6            1
+  远端接口      本机服务      本机文件
+  2 个账号·1 把钥匙未配置   依赖本机在跑   7 个路径
+台账
+  取数台账 29 条（失败 6） · 经验库 10 条 · 覆盖 4 个库
+  有 2 条库失败过却没记经验 —— 进「资源」看是哪条
+▸ 迁移（导出 / 导入 / 清空）
 ```
 
-口径统一用**「把」（引用名）**计数，账号数括注在括号里，所以分类各行相加等于总数。
+- **三类是唯一一级分类**：`远端接口` / `本机服务` / `本机文件`。它按"东西怎么进来的"分，人话优先；技术细节（MCP、S3/WebDAV、SQLite、声明式 HTTP…）只在**登记时**出现，首页与卡片上不做分类展示。
+- 归类**自动派生**，不需要人填：`files` 与 SQLite → 本机文件；MCP 走 stdio、以及**回环地址**（`127.0.0.1` / `localhost` / `::1`）→ 本机服务；其余 → 远端接口。回环判定的反例（本地反向代理把远端伪装成 `127.0.0.1`）由注册表字段 `bucket` 覆盖，登记表单里可改。
+- `0 条`的那一类**照常显示**——空本身是信息，三格也才是稳定的一套。
+- 「有阻塞」旁的数字**可点**，直达该类的阻塞筛选。
 
-三点要知道。「注意」块只在真有未配置时出现，没有就整块消失。筛选器作用于字段，一个字段都不命中的账号卡整张不显示。三层是客户端内部状态、不是路由，不能深链、浏览器返回键无效，面包屑是唯一的回退路径。
+### 类层：账号在前，资源在后
+
+点任一格进入那一类。标题是类名，面包屑从 `stash` 起，回退走「← 概览」。
+
+```
+账号                 N 个 · M 把钥匙            [全部账号 →]
+  [搜索账号名 / 网址 / 引用名]
+  某账号   [类别]   id                已配置 / N 把未配置
+    ● REF_NAME  已配置 · 落点 query:apiKey
+资源                 K 条                      [＋ 新建资源]
+  [全部 K] [就绪] [有阻塞]            [搜索 id / 名称 / 摘要]
+  名称   [形态]   id   [手写/代写]     就绪 / 有阻塞
+    边界 · 用量 · 经验 · 卡在哪 / 失败过却没记经验
+    详情 ▾ → 禁止边界 / 动作 / 路径 / 命令 / [编辑] [删除]
+```
+
+- **钥匙跟着资源走**：账号块只列**这一类资源用到的账号**（按引用名交叉认领）。没被任何资源引用的账号走「全部账号 →」进钥匙三层。今天账号全落在「远端接口」；将来本机服务需要 token 时，它会自己出现在那一类里。
+- 账号块有**自己的搜索**，超过 4 个折叠。
+- **改与删只对代写条目开放**：卡片详情里有「编辑」「删除」；手写条目（`sources.mjs`）没有这两个按钮，卡上写明"程序不改写它"。
+- 删除只要**一次二次确认**（不像清空整库那样要输校验码），并说清后果：台账只追加不删；该库的经验仍在 `lessons.json`，但界面按已登记库聚合，所以不再显示。
+- 顶部筛选是**三挡状态**（全部 / 就绪 / 有阻塞）+ 搜索框；形态写在每张卡的标签上，不再做分组。
+
+### 新建 / 编辑资源：两级下拉 + 必填 4 项
+
+```
+＋ 新建条目
+  账号      一个服务 / 网站，下面挂若干把钥匙（引用名）
+  资源      能被取数的东西 → 选一个细分（下拉）
+    声明式 HTTP 接口   http                     没有专用处理器的接口都走这里      → 远端接口
+    内置处理器         trade_stats / policy_alerts                              → 远端接口
+    本地数据库         db · SQLite              只支持 SQLite；其他库走 HTTP 门面 → 本机文件
+    对象存储           objstore · S3 / WebDAV   SFTP、SMB 直连暂不支持          → 远端接口
+    本地语料           files                    文件或目录，只登记路径            → 本机文件
+    MCP 服务           mcp                      只登记；取数走 DSH 直连          → 本机服务 / 远端接口
+```
+
+表单分四组：**标注**（id、名称）、**取数**（随形态变）、**边界**（四个 chip，其中 ◇ 两个是硬门禁）、**钥匙**（只填引用名）。必填只 4 项，其余（请求头、必填参数、条数上限、前缀、摘要、禁止边界）折进「高级」。
+
+- 校验**与模型侧 `stash_source_add` 是同一套代码**——面板的写端点直接调用那个工具本体，不会这边放行、那边失败。
+- 报错落到具体字段上：顶部一条汇总（`⚠ …（共 N 处需要改）`），字段就地标红，并说清怎么改。
+- 表单里**永远没有"值"的输入框**：只登记引用名；值只能由人在账号详情里贴。
+- 边界那组下面写明：**只有 ◇ 只能人工导出 / ◇ 明确不做会被硬拒绝**（`stash_fetch` 不取数、只留痕），另外两个是声明。
+
+### 资源写端点
+
+| 方法 | 路径 | 做什么 |
+|---|---|---|
+| `POST` | `/stash/sources` | 新建 / 覆盖一条**代写**资源（`overwrite: true` 才是编辑语义） |
+| `DELETE` | `/stash/sources?id=` | 删除一条代写资源；手写条目拒绝；顺带把它从账号的 `usedBy` 里摘掉 |
+
+两条都**只对 `sources.local.json` 生效**——程序永不改写 `sources.mjs`。回报里会说明台账与经验的去向。
+
+实现上 `createLibrariesView` 仍是**无 hook 的纯渲染**：数据与筛选状态由页面持有、通过 props 传入。所以它不是第二个设置页，切层也不会动到 hook 顺序。
+
 
 ## 想加东西的时候写在哪、谁来写？
 
-五样东西，各有两条路。
+五样东西，各有三条路（面板 / 手写 / 模型）。**面板能改的只有代写条目**——程序永不改写 `sources.mjs`。
 
-| 要写什么 | 手动 | 让模型写 |
+| 要写什么 | 面板 | 手动 | 让模型写 |
+|---|---|---|---|
+| **资源**（库） | ✅ 新建 / 编辑 / 删除（`设置 → stash` → 任一格 → 「＋ 新建资源」，或卡片详情里的编辑/删除） | 编辑 `sources.mjs`（手写件，程序永不改写；面板对它只读） | `stash_source_add`（写进 `sources.local.json`） |
+| **钥匙条目**（引用名、落点） | ✅ 新建 / 编辑 / 删除（类层的账号块 → 账号详情） | 编辑 `sources.local.json` 的 `accounts` | `stash_credential_add` |
+| **钥匙的值** | ✅ 账号详情里粘贴（`env:` 落点同时写 `$DSH_HOME/.env`） | 写 `~/.dsh/.credentials.yaml` 或 `$DSH_HOME/.env` | **写不了**，工具没有 `value` 参数 |
+| **经验** | ➖ 没有入口（刻意的） | 编辑 `lessons.json` | `stash_lesson_add` / `_remove` |
+| **语料** | ➖ 面板不搬文件（只登记路径） | 文件丢进 `corpus/` | `stash_source_add`（`kind: "files"`） |
+
+面板的新建与编辑都走 `stash_source_add` **本体**，所以登记时就会把**会导致取数失败的条目**拒掉（`request.url` 写错、SQL 不是只读单语句、引用名没声明…），报错直接落在对应字段上，不用等真去取才发现。经验没有面板入口是刻意的：经验是**判断**（"下次别再这么写"），不是事实；自动生成的多半是噪音，所以只由模型或人在想清楚之后写一条。系统能做的是**发现缺口**——哪条库失败过却没记经验，卡片上会点出来。
+
+### 六种形态各自的字段
+
+`kind` 决定形状，`handler` 决定怎么取数。照抄 [`sources.example.mjs`](sources.example.mjs) 里对应的那一条即可：
+
+| 形态 | 必填字段 | 说明 |
 |---|---|---|
-| **库**（数据源） | 编辑 `sources.mjs`（手写件，程序永不改写） | `stash_source_add`（写进 `sources.local.json`） |
-| **钥匙条目**（引用名、落点） | 编辑 `sources.local.json` 的 `accounts` | `stash_credential_add` |
-| **钥匙的值** | 「设置 → 钥匙」面板粘贴；`env:` 落点也可写 `$DSH_HOME/.env` | **写不了**，工具没有 `value` 参数 |
-| **经验** | 编辑 `lessons.json` | `stash_lesson_add` / `_remove` |
-| **语料** | 文件丢进 `corpus/` | `stash_source_add`（`kind: "files"`） |
+| `remote` + `http` | `request.url` | 声明式：`query` / `headers` / `body` / `pick` / `limit` / `required` / `minGapMs` / `cacheTtlMs` / `paginate` / `captureHeaders`；`{参数名}` 代入参数、`{credential:引用名}` 注入凭据 |
+| `remote` + `trade_stats` / `policy_alerts` | `request` | 内置专用实现，把已知坑写进了代码 |
+| `remote` + `db` | `request.engine`（只能是 `sqlite`）、`request.path`（绝对路径）、`request.sql`（单条 SELECT/WITH） | 零依赖（Node 内置 `node:sqlite`）；只读打开 + 只放行只读单语句；`required` 声明 `:name` 占位符；`limit` 限行数 |
+| `remote` + `objstore` | `request.protocol`（`s3` / `webdav`）、`request.endpoint` | `s3` 还要 `bucket`（+ 签名时的 `region` 与 `accessKeyIdRef` / `secretAccessKeyRef`）；`webdav` 可给 `usernameRef` / `passwordRef`。动作只有 `list` / `get` |
+| `files` | `paths`（绝对路径数组） | 只登记路径；`stash_files` 列目录/子串检索，`read` 读内容 |
+| `mcp` | `server` | 只登记，**不经 stash 取数**；建议再给 `transport`（`stdio` / `streamable-http` / `sse`）与 `tools`（如 `mcp__my-service__*`） |
 
-`stash_source_add` 会在登记时就把**会导致取数失败的条目**拒掉，不用等真去取才发现。
+服务端数据库（Postgres / MySQL / 数仓）**没有**内置 handler：本包零依赖，不引入数据库驱动。给它套一层只读 HTTP 门面，按 `remote` + `http` 登记即可。
 
 ## 如何换到另一台机器？
 
@@ -416,16 +499,20 @@ stash-export-20260926-1340/
 零依赖、零构建，测试是手写的 `check()` 断言 + 计数汇总，不引任何测试框架：
 
 ```powershell
-node test/host-assembly.mjs     # host 半边：185 项断言
-node test/client-runtime.mjs    # client 半边（三层界面）：137 项断言
+node test/host-assembly.mjs     # host 半边（注册表 / 工具 / 三条路由 / 提示注入）：223 项断言
+node test/client-runtime.mjs    # client 半边（首页 + 类层 + 钥匙三层 + 资源表单/编辑/删除）：220 项断言
 node test/portability.mjs       # 导出 / 导入 / 清空：87 项断言
+node test/handlers-bc.mjs       # B/C 类 handler（SigV4 官方向量 / SQLite / S3 / WebDAV）：42 项断言
+node scripts/preflight-upload.mjs  # 上传前自检：仓库里不该有你的库、钥匙、台账、语料、本机路径
 ```
 
 `host-assembly.mjs` 同 `portability.mjs` 都跑在临时 `DSH_HOME`（`os.tmpdir()` 下）里，跑完自清理，**既不读也不写你真实的 `~/.dsh/`**。`client-runtime.mjs` 只读 `client/client.js` 源码，用最小 React 运行时驱动它，不碰磁盘。
 
-当前状态：**409 项断言全部通过**。CI 在 `.github/workflows/ci.yml`（node 22 / 24）。
+**上传 GitHub 之前跑一次 `scripts/preflight-upload.mjs`**：它扫整个仓库，命中就非零退出——不该进仓库的数据文件（`sources.mjs` / `sources.local.json` / `ledger.ndjson` / `lessons.json` / `cache/` / `corpus/` / `stash-export-*/` / `.credentials.yaml` / `.env`）、Windows 与 macOS/Linux 的用户目录绝对路径、**邮箱地址**、疑似密钥值与令牌（`sk-` / `sbp_` / `AKIA` / `ghp_` / `AIza` / JWT）、私钥正文。CI 里也有这一步，所以误提交会在 PR 上直接红掉。
 
-设计取舍见 `DESIGN-vault.md`（钥匙台账）、`DESIGN-lessons.md`（经验库）、`DESIGN-portability.md`（多机迁移）。版本变化见 `CHANGELOG.md`。
+当前状态：**572 项断言全部通过**。CI 在 `.github/workflows/ci.yml`（node 22 / 24；Node 22.5–23.3 的 `node:sqlite` 需 `--experimental-sqlite`，那几条真库断言会自动跳过并说明，其余照跑）。
+
+设计取舍见 `DESIGN-taxonomy.md`（资源分类：四条通道与 A–H 形态）、`DESIGN-vault.md`（钥匙台账）、`DESIGN-lessons.md`（经验库）、`DESIGN-portability.md`（多机迁移）。版本变化见 `CHANGELOG.md`。
 
 ## 许可
 

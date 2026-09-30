@@ -32,12 +32,26 @@ jobs:
 
       - name: 语法检查（所有源码与测试）
         run: |
-          for f in lib/*.js lib/handlers/*.js client/client.js test/*.mjs; do
+          for f in lib/*.js lib/handlers/*.js client/client.js test/*.mjs scripts/*.mjs; do
             node --check "$f"
           done
 
-      - name: host 半边测试（127 项断言）
+      - name: host 半边测试（注册表 / 工具 / 路由 / 提示注入）
         run: node test/host-assembly.mjs
 
-      - name: client 半边测试（57 项断言）
+      - name: client 半边测试（总览 / 资源层 / 钥匙三层）
         run: node test/client-runtime.mjs
+
+      - name: 导出 / 导入 / 清空
+        run: node test/portability.mjs
+
+      # B、C 两类 handler：SigV4 用 AWS 官方测试向量核对，SQLite 用真库，
+      # 对象存储打本机 mock 服务器。Node 22.5–23.3 的 node:sqlite 需要
+      # --experimental-sqlite，测试里会检测并跳过真库断言（其余断言照跑）。
+      - name: B / C 类 handler 测试（sqlite / SigV4 / S3 / WebDAV）
+        run: node test/handlers-bc.mjs
+
+      # 防止把"运行时数据"提交上来：库清单、钥匙、台账、语料、本机路径。
+      # 只读文件、不联网、不改任何东西；命中即失败。
+      - name: 上传前自检（仓库里不该有你的库与钥匙）
+        run: node scripts/preflight-upload.mjs

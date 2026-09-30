@@ -35,6 +35,172 @@ window.__ModuleLoader__.load({
 		const ENDPOINT_PATH = "/stash/credentials";
 		// 迁移（导出 / 导入 / 清空）走另一条端点：值只由宿主从凭据服务读写，浏览器只送动作与开关。
 		const PORTABILITY_PATH = "/stash/portability";
+	/** 资源写端点：POST 新建 / 覆盖，DELETE 删除（都只对代写条目生效）。 */
+	const SOURCES_PATH = "/stash/sources";
+
+	/**
+	 * 「资源」的七个细分。**这是唯一出现技术名的地方**——登记时选，界面别处不展示。
+	 * bucket 那一列只是"会归到哪一类"的提示，真正的归类由 host 派生（可覆盖）。
+	 */
+		const RESOURCE_FORMS = [
+		{
+			form: "http", label: "声明式 HTTP 接口", tech: "http", kind: "remote", handler: "http",
+			hint: "最常见的一种：一个 http(s) 地址，参数写进 URL / 请求头 / 查询串。",
+		},
+		{
+			form: "builtin", label: "内置处理器", tech: "handler id", kind: "remote", handler: null,
+			hint: "插件自带的专用实现（不是通用 HTTP）：用哪个由 handler id 决定，取数参数固定。",
+		},
+		{
+			form: "db", label: "本地数据库", tech: "db · SQLite", kind: "remote", handler: "db",
+			hint: "本地 SQLite 文件 + 一条只读查询。其他数据库请套一层只读 HTTP 门面。",
+		},
+		{
+			form: "objstore", label: "对象存储 / 文件传输", tech: "objstore", kind: "remote", handler: "objstore",
+			hint: "S3 兼容的桶（含 MinIO）或 WebDAV 目录：列对象、取单个文件。",
+		},
+		{
+			form: "files", label: "本地语料", tech: "files", kind: "files", handler: null,
+			hint: "磁盘上的文件或目录，只登记路径；面板不会替你搬文件。",
+		},
+		{
+			form: "mcp", label: "MCP 服务", tech: "mcp", kind: "mcp", handler: null,
+			hint: "DSH 里已配好的 MCP 服务：只登记，取数由 DSH 直连，不进取数台账。承载选 stdio 归本机服务、选 http/sse 归远端接口。",
+		},
+	];
+
+	/**
+	 * 新建页第一行是**对象**：资源（能被取数的东西）与账号（钥匙的容器）。
+	 * 三类是**资源的归属**，不是并列的第三类对象——它由形态派生，显示在「归入」那一行。
+	 * 把三类与账号混成一个下拉，就是拿两个轴当一类。
+	 */
+	const CREATE_OBJECTS = [
+		{ id: "resource", label: "资源", hint: "能被取数的东西：接口 / 数据库 / 对象存储 / 语料 / MCP" },
+		{ id: "account", label: "账号", hint: "一个服务 / 网站，下面挂若干把钥匙（引用名）" },
+	];
+	/** 「自动判定」会归到哪一类：写成中文给非专业读者看；MCP 由承载决定，两个都写上。 */
+	const bucketLabelOf = (form) => {
+		if (form === "mcp") return "本机服务（承载 stdio）/ 远端接口（承载 http、sse）";
+		return BUCKET_FALLBACK[derivedBucket(form)] || "";
+	};
+	/** 形态会归到哪一类（与 host 的 bucketOf 同一套规则，只用于表单里即时提示）。 */
+	const derivedBucket = (form) => {
+		if (form === "files" || form === "db") return "local-files";
+		if (form === "mcp") return null; // 由承载决定：stdio→本机服务，http/sse→远端接口
+		return "remote";
+	};
+	const resourceFormMeta = (form) => RESOURCE_FORMS.find((item) => item.form === form) ?? RESOURCE_FORMS[0];
+
+
+	/** 空表单。字段刻意只留必填 + 高级，别一上来摊十几个输入框。 */
+	const emptyResource = (form) => ({
+		form, mode: "new", advanced: false, classScope: null,
+		id: "", name: "", access: "public-api", credentials: "", summary: "", boundary: "", bucketOverride: "",
+		// 取数（随形态变）
+		url: "", method: "GET", headers: "", required: "", handlerId: "",
+		dbPath: "", sql: "", limit: "",
+		protocol: "s3", endpoint: "", bucket: "", region: "", prefix: "",
+		paths: "",
+		server: "", transport: "stdio", tools: "",
+		errors: [], summaryError: null, hint: null, busy: false,
+	});
+
+	/**
+	 * 表单 → 注册表条目。只组装**引用的名字**，永远不碰值——
+	 * 值只能由人在账号详情里贴，走浏览器 → 宿主凭据服务的单向通道。
+	 */
+	const buildResourceEntry = (rc) => {
+		const meta = resourceFormMeta(rc.form);
+		const entry = {
+			id: String(rc.id ?? "").trim(),
+			name: String(rc.name ?? "").trim() || String(rc.id ?? "").trim(),
+			kind: meta.kind,
+		};
+		if (meta.form === "builtin") entry.handler = String(rc.handlerId || "").trim();
+		else if (meta.handler) entry.handler = meta.handler;
+		const refs = String(rc.credentials ?? "").split(/[,\s]+/).map((x) => x.trim()).filter(Boolean);
+		if (rc.form === "http") {
+			const request = { url: String(rc.url ?? "").trim(), method: String(rc.method ?? "GET").trim() || "GET" };
+			const headers = {};
+			for (const line of String(rc.headers ?? "").split("\n")) {
+				const at = line.indexOf(":");
+				if (at > 0) headers[line.slice(0, at).trim()] = line.slice(at + 1).trim();
+			}
+			if (Object.keys(headers).length > 0) request.headers = headers;
+			const required = String(rc.required ?? "").split(/[,\s]+/).map((x) => x.trim()).filter(Boolean);
+			if (required.length > 0) request.required = required;
+			const limit = Number(rc.limit);
+			if (Number.isFinite(limit) && limit > 0) request.limit = limit;
+			entry.request = request;
+		} else if (rc.form === "db") {
+			const request = { engine: "sqlite", path: String(rc.dbPath ?? "").trim(), sql: String(rc.sql ?? "").trim() };
+			const required = String(rc.required ?? "").split(/[,\s]+/).map((x) => x.trim()).filter(Boolean);
+			if (required.length > 0) request.required = required;
+			const limit = Number(rc.limit);
+			if (Number.isFinite(limit) && limit > 0) request.limit = limit;
+			entry.request = request;
+		} else if (rc.form === "objstore") {
+			const request = { protocol: rc.protocol, endpoint: String(rc.endpoint ?? "").trim() };
+			for (const [key, value] of [["bucket", rc.bucket], ["region", rc.region], ["prefix", rc.prefix]]) {
+				const text = String(value ?? "").trim();
+				if (text) request[key] = text;
+			}
+			const limit = Number(rc.limit);
+			if (Number.isFinite(limit) && limit > 0) request.limit = limit;
+			if (rc.protocol === "s3" && refs.length >= 2) {
+				request.accessKeyIdRef = refs[0];
+				request.secretAccessKeyRef = refs[1];
+			}
+			entry.request = request;
+		} else if (rc.form === "files") {
+			entry.paths = String(rc.paths ?? "").split("\n").map((x) => x.trim()).filter(Boolean);
+		} else if (rc.form === "mcp") {
+			entry.server = String(rc.server ?? "").trim();
+			entry.transport = rc.transport;
+			if (String(rc.tools ?? "").trim()) entry.tools = String(rc.tools).trim();
+		}
+		if (refs.length > 0) entry.credentials = refs;
+		if (rc.access) entry.access = rc.access;
+		if (String(rc.bucketOverride ?? "")) entry.bucket = rc.bucketOverride;
+		if (String(rc.summary ?? "").trim()) entry.summary = String(rc.summary).trim();
+		if (String(rc.boundary ?? "").trim()) entry.boundary = String(rc.boundary).trim();
+		if (rc.mode === "edit") entry.overwrite = true;
+		return entry;
+	};
+
+	/** host 的报错落到具体字段上：按关键词认领，认不出的进顶部汇总。 */
+	const RESOURCE_FIELD_HINTS = [
+		[/bucket/i, "bucketOverride"],
+		[/\bid\b|id 只能|已被占用/i, "id"],
+		[/url|地址/i, "url"],
+		[/sql|只读语句|SELECT/i, "sql"],
+		[/路径|path/i, "dbPath"],
+		[/endpoint|protocol|region/i, "endpoint"],
+		[/server|transport|tools/i, "server"],
+		[/凭据|credentials|引用名|accessKeyIdRef|secretAccessKeyRef/i, "credentials"],
+		[/access|边界/i, "access"],
+		[/paths/i, "paths"],
+	];
+	const mapResourceErrors = (data) => {
+		const messages = [];
+		if (data && data.error) messages.push(String(data.error));
+		if (data && Array.isArray(data.problems)) {
+			for (const item of data.problems) messages.push(typeof item === "string" ? item : (item && item.message) || String(item));
+		}
+		if (messages.length === 0) messages.push("登记失败（没有更多说明）");
+		return messages.map((message) => {
+			const hit = RESOURCE_FIELD_HINTS.find(([re]) => re.test(message));
+			return { field: hit ? hit[1] : null, message };
+		});
+	};
+
+	/** 类层「归入」下拉的三个值 + 自动。 */
+	const BUCKET_CHOICES = [
+		{ id: "", label: "自动判定" },
+		{ id: "remote", label: "远端接口" },
+		{ id: "local-service", label: "本机服务" },
+		{ id: "local-files", label: "本机文件" },
+	];
 
 		/*
 		 * URL 构造照抄官方客户端产物（dshmarket 的 api()）——
@@ -122,6 +288,18 @@ window.__ModuleLoader__.load({
 			".dshs-root .dshs-crumb{border-color:transparent;background:transparent;color:" + C.text2 + ";padding:2px 5px;font-size:12px;}",
 			".dshs-root .dshs-crumb:hover:not(:disabled){color:" + C.text + ";background:transparent;border-color:transparent;text-decoration:underline;}",
 			".dshs-root .dshs-crumblast{color:" + C.text + ";cursor:default;}",
+			// 段头：名称 + 右侧动作，下面一条浅线收口。整页只用这一种分隔，避免满屏横线。
+			".dshs-root .dshs-sec{display:flex;align-items:baseline;gap:8px;",
+			"padding-bottom:7px;margin-bottom:4px;border-bottom:1px solid " + C.border + ";}",
+			".dshs-root .dshs-secname{font-size:12px;font-weight:600;letter-spacing:.04em;color:" + C.text2 + ";}",
+			// 首页三格：等宽、竖线分开，数字是主体。
+			".dshs-root .dshs-buckets{display:flex;flex-wrap:wrap;margin-top:20px;border-top:1px solid " + C.border + ";padding-top:16px;}",
+			// min-width 是窄面板的兜底：面板被压到 500px 以下时三格会自动换行，而不是挤成一团。
+			".dshs-root .dshs-cell{flex:1;min-width:150px;display:flex;flex-direction:column;align-items:flex-start;gap:2px;",
+			"background:transparent;border:0;padding:2px 18px 2px 0;text-align:left;cursor:pointer;color:inherit;}",
+			".dshs-root .dshs-cell + .dshs-cell{border-left:1px solid " + C.border + ";padding-left:20px;}",
+			".dshs-root .dshs-cell:hover .dshs-cellnum{color:" + C.brand + ";}",
+			".dshs-root .dshs-rowbtn{border-radius:8px;}",
 		].join("");
 
 		function injectStyles() {
@@ -150,6 +328,31 @@ window.__ModuleLoader__.load({
 			crumbRow: { display: "flex", alignItems: "center", gap: "3px", flexWrap: "wrap", marginBottom: "9px" },
 			crumbSep: { color: C.text2, fontSize: "12px" },
 			stats: { paddingBottom: "14px", marginBottom: "14px", borderBottom: "1px solid " + C.border },
+			// 段落容器：整页几段用同一个节奏，段间留白而不是加线。
+			sec: { marginTop: "24px" },
+			heroRow: { display: "flex", alignItems: "baseline", gap: "12px", flexWrap: "wrap", margin: "14px 0 0" },
+			heroNum: { fontSize: "52px", fontWeight: 600, lineHeight: .95, fontVariantNumeric: "tabular-nums" },
+			heroLabel: { fontSize: "12px", color: C.text2 },
+			dotRow: { display: "flex", alignItems: "center", gap: "7px", flexWrap: "wrap" },
+			count: { color: C.text2, fontSize: "12px", fontVariantNumeric: "tabular-nums" },
+			bucketGrid: { display: "flex", marginTop: "20px", borderTop: "1px solid " + C.border, paddingTop: "16px" },
+			cellNum: { fontSize: "34px", fontWeight: 600, lineHeight: 1.05, fontVariantNumeric: "tabular-nums",
+				display: "flex", alignItems: "center", gap: "9px" },
+			cellLabel: { fontSize: "12px", color: C.text2 },
+			cellNote: { fontSize: "12px", color: C.text2 },
+			// 新建菜单：窄面板里不做绝对定位的浮层（会被裁），直接排成一块。
+			menu: {
+				marginTop: "10px", border: "1px solid " + C.border2, borderRadius: "10px",
+				background: C.layer2, overflow: "hidden", maxWidth: "560px",
+			},
+			menuItem: {
+				display: "flex", alignItems: "baseline", gap: "9px", flexWrap: "wrap",
+				width: "100%", textAlign: "left", padding: "9px 13px", borderRadius: 0,
+				borderBottom: "1px solid " + C.border,
+			},
+			menuName: { fontWeight: 600, fontSize: "13px" },
+			menuHint: { color: C.text2, fontSize: "12px" },
+			menuGroup: { padding: "7px 13px", color: C.text2, fontSize: "11px", letterSpacing: "0.06em", background: C.layer1 },
 			// 概览页的总数给足字号：这一页本来就是"一眼看总量"。
 			bigNum: { fontSize: "28px", fontWeight: 600, lineHeight: 1.1, fontVariantNumeric: "tabular-nums" },
 			bigRow: { display: "flex", alignItems: "baseline", gap: "9px", flexWrap: "wrap" },
@@ -197,7 +400,7 @@ window.__ModuleLoader__.load({
 			area: { width: "100%", minHeight: "64px" },
 			check: { display: "inline-flex", alignItems: "center", gap: "5px", fontSize: "12px", color: C.text2 },
 			btn: (disabled) => (disabled ? { opacity: 0.45 } : {}),
-			hint: { color: C.text2, fontSize: "12px", lineHeight: 1.65 },
+			hint: { color: C.text2, fontSize: "11px", lineHeight: 1.6 },
 			notice: (bad) => ({ marginTop: "10px", fontSize: "12px", color: bad ? C.bad : C.ok }),
 			confirm: { borderColor: C.bad },
 			foldHead: { display: "flex", alignItems: "baseline", gap: "8px", flexWrap: "wrap" },
@@ -226,7 +429,7 @@ window.__ModuleLoader__.load({
 		const isReadonly = (account) => account.origin === "handwritten";
 
 		const emptyForm = () => ({
-			id: "", label: "", category: "site", url: "", notes: "", usedBy: [],
+			id: "", label: "", category: "site", url: "", notes: "", usedBy: [], showUsedBy: false,
 			fields: [{ ref: "", label: "", secret: true, inject: "", multiline: false, notes: "" }],
 		});
 
@@ -307,13 +510,87 @@ window.__ModuleLoader__.load({
 			}
 		}
 
+		/**
+		 * 面板上的三类（人话）：远端接口 / 本机服务 / 本机文件。
+		 * id 与中文名以 host 的 libraryStats.byBucket 为准；host 还没重载时按同一规则在前端补算。
+		 */
+		const BUCKET_FALLBACK = {
+			remote: "远端接口",
+			"local-service": "本机服务",
+			"local-files": "本机文件",
+		};
+		const LOOPBACK = /^https?:\/\/(?:127\.0\.0\.1|localhost|\[::1\])(?::\d+)?(?:[/?#]|$)/i;
+		const bucketOfLocal = (lib) => {
+			if (lib.bucket && BUCKET_FALLBACK[lib.bucket]) return lib.bucket;
+			if (lib.kind === "files" || (lib.kind === "remote" && lib.handler === "db")) return "local-files";
+			if (lib.kind === "mcp") return lib.transport === "stdio" ? "local-service" : "remote";
+			if (lib.kind === "remote" && lib.handler === "http" && LOOPBACK.test(String(lib.url ?? lib.requestUrl ?? ""))) return "local-service";
+			return "remote";
+		};
+
+		/**
+		 * 统计：优先用 host 组装好的 libraryStats（口径与 stash_catalog 共用一处）；
+		 * host 还没重载（旧 payload）时按同一规则在前端补算，保证首页与清单不会一片空白。
+		 */
+		const deriveLibraryStats = (list, stats) => {
+			if (stats && Array.isArray(stats.byBucket) && Array.isArray(stats.byForm)) return stats;
+			const libs = Array.isArray(list) ? list : [];
+			const byBucket = [];
+			const byForm = [];
+			for (const lib of libs) {
+				const bucket = bucketOfLocal(lib);
+				const form = lib.form || lib.kind || "unknown";
+				const formLabel = lib.formLabel || lib.kindLabel || form;
+				const bump = (arr, key, label, extra) => {
+					const found = arr.find((item) => (item.bucket ?? item.form) === key);
+					if (found) {
+						found.count += 1;
+						if (lib.ready !== false) found.ready += 1; else found.blocked += 1;
+						return;
+					}
+					arr.push({ ...extra, label, count: 1, ready: lib.ready !== false ? 1 : 0, blocked: lib.ready !== false ? 0 : 1, missingRefs: 0, refs: 0, lessonGaps: 0 });
+				};
+				bump(byBucket, bucket, BUCKET_FALLBACK[bucket] ?? bucket, { bucket });
+				bump(byForm, form, formLabel, { form, bucket });
+			}
+			return {
+				total: libs.length,
+				ready: libs.filter((lib) => lib.ready !== false).length,
+				blocked: libs.filter((lib) => lib.ready === false).length,
+				byBucket,
+				byForm,
+				refs: 0,
+				missingRefs: 0,
+				undeclaredAccess: 0,
+				lessons: 0,
+				lessonGaps: libs.filter((lib) => lib.lessonGap).length,
+			};
+		};
+
+		/** 三类齐全（含 0 条的那类），首页三格才是稳定的一套。 */
+		const withAllBuckets = (stats) => {
+			const found = new Map((stats.byBucket || []).map((group) => [group.bucket, group]));
+			return Object.keys(BUCKET_FALLBACK).map((bucket) => found.get(bucket) ?? {
+				bucket, label: BUCKET_FALLBACK[bucket], count: 0, ready: 0, blocked: 0, missingRefs: 0, refs: 0, lessonGaps: 0,
+			});
+		};
+
+		/** 这一类里用到的账号（钥匙跟着它服务的资源走）。 */
+		const accountsForBucket = (accounts, libs) => {
+			const refs = new Set();
+			for (const lib of libs) for (const cred of lib.credentials ?? []) refs.add(cred.ref);
+			return (accounts || []).filter((account) => (account.fields ?? []).some((field) => refs.has(field.ref)));
+		};
+
 		/** 由 apply 传入、闭包持有 ctx 的接口。组件因此不依赖槽位的 inject-props 契约。 */
-		const createSection = (api) => {
+		const createSection = (api, LibrariesView) => {
 			// 幂等：只注入一次。组件每次渲染都会调，命中 getElementById 就返回。
 			injectStyles();
 			function StashCredentials() {
 				const [state, setState] = React.useState({
 					loading: true, accounts: [], stats: null, problems: [], categories: [], libraries: [],
+					libraryStats: null,
+					records: null,
 					sourcesFile: null, localFile: null, error: null, credentialsAvailable: true, endpoint: null,
 				});
 				const [open, setOpen] = React.useState({});
@@ -329,6 +606,22 @@ window.__ModuleLoader__.load({
 				const [level1, setLevel1] = React.useState(null);
 				const [accountId, setAccountId] = React.useState(null);
 				const [fieldEdit, setFieldEdit] = React.useState({});
+
+				/* 「类层」的筛选状态。放在页面这一层（而不是视图里），是为了让视图保持无 hook 的纯渲染。 */
+				const [libBucket, setLibBucket] = React.useState("remote");
+				const [libFilter, setLibFilter] = React.useState("all");
+				const [libQuery, setLibQuery] = React.useState("");
+				const [libOpen, setLibOpen] = React.useState({});
+				/* 账号块的折叠与筛选（账号多了也找得到）；搜索与资源共用一个输入框。 */
+				const [acctOpen, setAcctOpen] = React.useState(false);
+				const [acctFilter, setAcctFilter] = React.useState("all");
+				/* 新建菜单：null | "root"（账号/资源）| "resource"（七个细分）。 */
+				/* 新建页的「新建什么」：account | remote | local-service | local-files。 */
+				const [createType, setCreateType] = React.useState("remote");
+				/* 资源表单（新建 / 编辑同一套）；delConfirm 是删除的二次确认。 */
+				const [rc, setRc] = React.useState(null);
+				const [delConfirm, setDelConfirm] = React.useState(null);
+				const [acctNotice, setAcctNotice] = React.useState(null);
 
 				/* 迁移区块：默认折叠；状态全部来自 GET /stash/portability。 */
 				const [port, setPort] = React.useState({
@@ -369,6 +662,8 @@ window.__ModuleLoader__.load({
 							problems: payload.problems || [],
 							categories: payload.categories || [],
 							libraries: payload.libraries || [],
+							libraryStats: payload.libraryStats || null,
+							records: payload.records || null,
 							sourcesFile: payload.sourcesFile || null,
 							localFile: payload.localFile || null,
 							error: null,
@@ -684,9 +979,179 @@ window.__ModuleLoader__.load({
 					return { ...prev, data: { ...prev.data, usedBy: has ? prev.data.usedBy.filter((x) => x !== id) : [...prev.data.usedBy, id] } };
 				});
 
+				/* ── 资源写路径：新建 / 编辑 / 删除 ─────────────────────────────
+				   浏览器只提交**引用的名字与元数据**；值从不经过这里。
+				   host 那边这两条路由直接调用 stash_source_add 本体，
+				   所以这里的校验报错与模型侧完全同一套。 */
+
+				const postResource = async (rcState) => {
+					const entry = buildResourceEntry(rcState);
+					const url = resolveEndpoint(SOURCES_PATH);
+					setRc((prev) => (prev ? { ...prev, busy: true, errors: [], summaryError: null, hint: null } : prev));
+					try {
+						const response = await fetch(url, {
+							method: "POST",
+							headers: { "Content-Type": "application/json", Accept: "application/json" },
+							cache: "no-store",
+							body: JSON.stringify(entry),
+						});
+						const data = await response.json().catch(() => null);
+						if (!response.ok || !data || data.ok !== true) {
+							setRc((prev) => (prev ? {
+								...prev, busy: false,
+								errors: mapResourceErrors(data),
+								summaryError: (data && data.error) || "登记被拒绝",
+								hint: (data && data.hint) || null,
+							} : prev));
+							return false;
+						}
+						await load();
+						setRc(null);
+						setView("libraries");
+						setNotice({ text: `已写入 sources.local.json：${entry.id}（无需重启，注册表每次调用重读）`, bad: false });
+						return true;
+					} catch (error) {
+						setRc((prev) => (prev ? {
+							...prev, busy: false,
+							errors: [{ field: null, message: (error && error.message) || String(error) }],
+							summaryError: "请求没发出去",
+							hint: "检查 host 半边是否已重启（新端点要重启才注册）。",
+						} : prev));
+						return false;
+					}
+				};
+
+				const removeResource = async (id) => {
+					// resolveEndpoint 只回 pathname（它被设计成丢掉 query），所以查询串在这里拼。
+					const url = resolveEndpoint(SOURCES_PATH) + "?id=" + encodeURIComponent(id);
+					try {
+						const response = await fetch(url, { method: "DELETE", headers: { Accept: "application/json" }, cache: "no-store" });
+						const data = await response.json().catch(() => null);
+						setDelConfirm(null);
+						if (!response.ok || !data || data.ok !== true) {
+							setNotice({ text: (data && data.error) || `删除失败（HTTP ${response.status}）`, bad: true });
+							return false;
+						}
+						await load();
+						setNotice({
+							text: `已删除 ${id}`
+								+ (data.accountsUpdated > 0 ? `；顺带从 ${data.accountsUpdated} 个账号的关联里摘掉了它` : "")
+								+ "。取数台账不删，经验仍在 lessons.json（界面按已登记库聚合，所以不再显示）。",
+							bad: false,
+						});
+						return true;
+					} catch (error) {
+						setDelConfirm(null);
+						setNotice({ text: (error && error.message) || String(error), bad: true });
+						return false;
+					}
+				};
+
+				/** 打开编辑表单：用 payload 里已有的字段回填（request 由 host 一并给出）。 */
+				const openResourceEditor = (lib) => {
+					const request = (lib && lib.request) || {};
+					const next = emptyResource(lib.form);
+					next.mode = "edit";
+					next.id = lib.id;
+					next.name = lib.name;
+					next.access = lib.access ?? "";
+					next.summary = lib.summary ?? "";
+					next.boundary = lib.boundary ?? "";
+					next.bucketOverride = lib.bucketOverridden ? lib.bucket : "";
+					next.credentials = (lib.credentials ?? []).map((field) => field.ref).join(", ");
+					if (lib.form === "http") {
+						next.url = request.url ?? "";
+						next.method = request.method ?? "GET";
+						next.headers = Object.entries(request.headers ?? {}).map(([k, v]) => `${k}: ${v}`).join("\n");
+						next.required = (request.required ?? []).join(", ");
+						next.limit = request.limit ? String(request.limit) : "";
+					} else if (lib.form === "db") {
+						next.dbPath = request.path ?? "";
+						next.sql = request.sql ?? "";
+						next.required = (request.required ?? []).join(", ");
+						next.limit = request.limit ? String(request.limit) : "";
+					} else if (lib.form === "objstore") {
+						next.protocol = request.protocol ?? "s3";
+						next.endpoint = request.endpoint ?? "";
+						next.bucket = request.bucket ?? "";
+						next.region = request.region ?? "";
+						next.prefix = request.prefix ?? "";
+						next.limit = request.limit ? String(request.limit) : "";
+						next.advanced = true;
+					} else if (lib.form === "files") {
+						next.paths = (lib.paths ?? []).map((item) => item.path).join("\n");
+					} else if (lib.form === "mcp") {
+						next.server = lib.server ?? "";
+						next.transport = lib.transport ?? "stdio";
+						next.tools = lib.tools ?? "";
+					}
+					
+					setNotice(null);
+					setRc(next);
+					setView("resource");
+				};
+
+				/** 打开空白资源表单（从新建菜单选了一个细分）。 */
+				const openResourceCreator = (form, classId = null) => {
+					const next = emptyResource(form);
+					next.classScope = classId;
+					// 从某一类进来时，归入就**预先写死这一类**（仍可改）：
+					// 选了「本机文件」却归到「远端接口」，多半是误操作。
+					if (classId) next.bucketOverride = classId;
+					if (form === "files" || form === "mcp" || form === "db") next.advanced = true;
+					
+					setNotice(null);
+					setRc(next);
+					setView("resource");
+				};
+
+
+				/** 打开新建页：**一个页面**，里面用下拉决定新建什么（不再有中间菜单）。 */
+				const openCreate = () => {
+					
+					setNotice(null);
+					setForm(null);
+					setRc(emptyResource("http"));
+					setCreateType("resource");
+					setView("create");
+				};
+
+				/** 新建页里换「新建什么」：账号表单与资源表单就地切换，页面不跳走。 */
+				const switchCreateType = (next) => {
+					if (next === "account") {
+						setRc(null);
+						setForm((prev) => (prev && prev.mode === "new" ? prev : { mode: "new", data: emptyForm() }));
+					} else {
+						setForm(null);
+						setRc((prev) => (prev && prev.mode === "new" ? prev : emptyResource("http")));
+					}
+					setCreateType(next);
+				};
+
+
+				/** 删除的二次确认：不动台账与经验，但要说清它们会怎样。 */
+				const renderDeleteConfirm = () => {
+					if (!delConfirm) return null;
+					return h("div", { key: "del", className: "dshs-card", style: { ...S.card, borderColor: C.warn } },
+						h("div", { style: { fontWeight: 600 } }, "确认删除 " + delConfirm.id + "？"),
+						h("div", { style: S.meta }, "删除的是这条登记（取数描述、摘要、备注、边界一并去掉）。"),
+						h("div", { style: S.meta },
+							"取数台账不会删（只追加不删）；"
+							+ (delConfirm.lessonCount > 0
+								? `该库有 ${delConfirm.lessonCount} 条经验，删后界面上不再显示（数据仍在 lessons.json，可用 stash_lesson_list 查）。`
+								: "该库没有经验记录。")),
+						h("div", { style: { display: "flex", gap: "8px", marginTop: "9px" } },
+							h("button", { key: "no", className: "dshs-ghost", style: S.btn(false), onClick: () => setDelConfirm(null) }, "取消"),
+							h("button", {
+								key: "yes", className: "dshs-danger", style: S.btn(false),
+								onClick: () => { void removeResource(delConfirm.id); },
+							}, "确认删除")));
+				};
+
 				/* ── 视图导航 ─────────────────────────────────────────────────── */
 
 				const gotoOverview = () => { setView("overview"); setForm(null); setNotice(null); };
+
 				const gotoList = (filter, category) => {
 					setLevel1({ filter: filter || "all", category: category || null });
 					setView("list");
@@ -728,7 +1193,7 @@ window.__ModuleLoader__.load({
 				}, label);
 				const renderCrumbs = (tailLabel, tailOnClick) => {
 					const items = [
-						crumbBtn("k", "钥匙", gotoOverview),
+						crumbBtn("k", "stash", gotoOverview),
 						// 只有 L3 才多一段「分类」：L2 本身就是清单，再套一层分类是多余的一跳。
 						view === "account" && account_category()
 							? crumbBtn("c", categoryLabelOf(account_category()), () => gotoList((level1 && level1.filter) || "all", account_category()))
@@ -753,86 +1218,368 @@ window.__ModuleLoader__.load({
 					return current ? current.category : null;
 				}
 
-				/* ══ L1 概览：一张可点的统计索引 ═════════════════════════════════ */
+				/* ══ 类层：同一个面板内的一层，从首页三类里点进来 ═══════════════ */
+
+				if (view === "libraries") {
+					const bucketId = libBucket || "remote";
+					const inBucket = (state.libraries || []).filter((lib) => bucketOfLocal(lib) === bucketId);
+					return h("div", { className: "dshs-root", style: S.wrap },
+						renderCrumbs(BUCKET_FALLBACK[bucketId] ?? bucketId),
+						h(LibrariesView, {
+							bucket: bucketId,
+							bucketLabel: BUCKET_FALLBACK[bucketId] ?? bucketId,
+							libraries: inBucket,
+							libraryStats: state.libraryStats,
+							accounts: accountsForBucket(state.accounts, inBucket),
+							problems: state.problems,
+							sourcesFile: state.sourcesFile,
+							localFile: state.localFile,
+							filter: libFilter, setFilter: setLibFilter,
+							query: libQuery, setQuery: setLibQuery,
+							open: libOpen, setOpen: setLibOpen,
+							acctOpen, setAcctOpen, acctFilter, setAcctFilter,
+							notice,
+							deleteConfirm: delConfirm, onCancelDelete: () => setDelConfirm(null),
+							onConfirmDelete: () => { if (delConfirm) void removeResource(delConfirm.id); },
+							onEditResource: openResourceEditor,
+							onDeleteResource: (lib) => setDelConfirm({
+								id: lib.id, name: lib.name,
+								lessonCount: (lib.lessons && lib.lessons.count) || 0,
+								handwritten: lib.origin === "handwritten",
+							}),
+							onBack: gotoOverview, onReload: load,
+							onOpenAccount: (id) => { setAccountId(id); setForm(null); setNotice(null); setView("account"); },
+							onOpenLedger: () => { setLevel1({ filter: "all", category: null }); setView("list"); },
+						}));
+				}
+
+				/* ══ 资源表单：新建 / 编辑同一套；字段随形态变，必填只 4 项 ══════ */
+
+				/** 资源表单的**主体**（不含面包屑与标题）：新建页与编辑页共用同一份。 */
+				const renderResourceFormBody = () => {
+					const current = rc || emptyResource("http");
+					const meta = resourceFormMeta(current.form);
+					const patch = (key, value) => setRc((prev) => (prev ? { ...prev, [key]: value } : prev));
+					const errorOf = (key) => (current.errors || []).find((item) => item.field === key);
+					const cap = (key) => (errorOf(key) ? { ...S.input, borderColor: C.warn } : S.input);
+					const field = (key, label, placeholder, opts = {}) => h("div", { key, style: S.form },
+						h("span", { style: { ...S.meta, marginTop: 0, minWidth: "84px" } }, label),
+						opts.area
+							? h("textarea", {
+								style: { ...cap(key), ...S.area },
+								value: current[key], placeholder,
+								onChange: (event) => patch(key, event.target.value),
+							})
+							: h("input", {
+								style: cap(key), value: current[key], placeholder,
+								onChange: (event) => patch(key, event.target.value),
+							}),
+						errorOf(key) ? h("div", { style: { ...S.warn, flexBasis: "100%" } }, errorOf(key).message) : null);
+
+					const rows = [];
+					rows.push(field("id", "id", "小写字母/数字/-/_，如 my_service"));
+					rows.push(field("name", "名称", "人看的名字，如 SEC EDGAR · 申报清单"));
+
+					if (current.form === "http") {
+						rows.push(field("url", "接口地址", "https://example.com/api/{param}"));
+						rows.push(field("method", "方法", "GET"));
+						if (current.advanced) {
+							rows.push(field("headers", "请求头", "每行一条，如 User-Agent: dsh-stash/1.0", { area: true }));
+							rows.push(field("required", "必填参数", "逗号分隔，如 cik"));
+							rows.push(field("limit", "条数上限", "如 100"));
+						}
+					} else if (current.form === "db") {
+						rows.push(field("dbPath", "SQLite 路径", "绝对路径，如 D:/data/app.db"));
+						rows.push(field("sql", "只读 SQL", "SELECT ... WHERE dept = :dept LIMIT 20", { area: true }));
+						rows.push(field("required", "必填参数", "逗号分隔，如 dept"));
+						rows.push(field("limit", "行数上限", "如 200"));
+					} else if (current.form === "objstore") {
+						rows.push(field("endpoint", "端点", current.protocol === "webdav" ? "https://dav.example.com/dir/" : "https://s3.example.com"));
+						rows.push(field("bucket", "bucket", "webdav 不用填"));
+						if (current.advanced) {
+							rows.push(field("region", "region", "S3 签名必填，如 us-east-1"));
+							rows.push(field("prefix", "默认前缀", "如 reports/"));
+							rows.push(field("limit", "条数上限", "如 50"));
+						}
+					} else if (current.form === "files") {
+						rows.push(field("paths", "路径（每行一条）", "D:/corpus/a.csv", { area: true }));
+						rows.push(h("div", { key: "corpus", style: S.warn },
+							"面板不会替你搬文件：先把文件放进 corpus 目录，再回来填路径。"));
+					} else if (current.form === "mcp") {
+						rows.push(field("server", "服务名", "DSH profile 里那条 MCP 行的 serverName，如 my-service"));
+						rows.push(h("div", { key: "tr", style: S.form },
+							h("span", { style: { ...S.meta, marginTop: 0, minWidth: "84px" } }, "承载"),
+							...[["stdio", "stdio（子进程）"], ["streamable-http", "streamable-http"], ["sse", "sse"]].map(([id, label]) => h("button", {
+								key: id, className: current.transport === id ? "dshs-primary" : "dshs-ghost", style: S.btn(false),
+								onClick: () => patch("transport", id),
+							}, label))));
+						rows.push(field("tools", "工具前缀", "如 mcp__my-service__*"));
+					}
+
+					// 使用边界：**一个下拉**（四个值里两个是硬门禁）。四个 chip 会折成两行，
+					// 加上后面那段说明，一屏里全是字——下拉把选择收起来，说明压成一行。
+					rows.push(h("div", { key: "access", style: S.form },
+						h("span", { style: { ...S.meta, marginTop: 0, minWidth: "84px" } }, "使用边界"),
+						h("select", {
+							className: "dshs-select",
+							style: { flex: "0 1 300px", width: "auto" },
+							value: current.access,
+							onChange: (event) => patch("access", event && event.target ? event.target.value : current.access),
+						},
+							h("option", { key: "public-api", value: "public-api" }, "公开免登录（可直连取数）"),
+							h("option", { key: "official-api", value: "official-api" }, "官方 API / 需授权"),
+							h("option", { key: "export-import", value: "export-import" }, "◇ 只能人工导出（硬门禁）"),
+							h("option", { key: "unsupported", value: "unsupported" }, "◇ 明确不做（硬门禁）"))));
+					rows.push(h("div", { key: "accounthint", style: S.hint },
+						"带 ◇ 的两个是硬门禁：选了它们，stash_fetch 直接拒绝取数、只留痕；另外两个是声明。"));
+
+					rows.push(field("credentials", "钥匙引用名", "如 MY_API_KEY；不填就是不需要钥匙（多个用逗号分隔）"));
+					rows.push(h("div", { key: "keyhint", style: S.hint },
+						"这里只登记**引用名**；值在账号详情里贴，永不经过模型、不进会话记录。"
+						+ (current.form === "objstore" ? "对象存储要按顺序填两个：access key id、secret access key。" : "")));
+
+					// 归入：默认自动判定，可改——本地反向代理会把远端伪装成 127.0.0.1。
+					// 从某一类进来时已经预置成那一类，这里只是"改回去"或"改成别的"的出口。
+					rows.push(h("div", { key: "bucket", style: S.form },
+						h("span", { style: { ...S.meta, marginTop: 0, minWidth: "84px" } }, "归入"),
+						h("select", {
+							className: "dshs-select",
+							style: { flex: "0 1 220px", width: "auto" },
+							value: current.bucketOverride || "",
+							onChange: (event) => patch("bucketOverride", event && event.target ? event.target.value : ""),
+						},
+							...BUCKET_CHOICES.map((choice) => h("option", { key: choice.id || "auto", value: choice.id },
+								choice.id ? choice.label : "自动判定（会归入「" + bucketLabelOf(current.form) + "」）")))));
+					rows.push(h("div", { key: "buckethint", style: S.hint },
+						"只有自动判定会错时才改——比如本地反向代理把远端服务伪装成 127.0.0.1。"));
+
+					const advancedToggle = ["http", "objstore"].includes(current.form)
+						? h("button", {
+							key: "adv", className: "dshs-ghost", style: S.btn(false),
+							onClick: () => patch("advanced", !current.advanced),
+						}, (current.advanced ? "▾ " : "▸ ") + "高级（请求头 / 必填参数 / 条数上限 / 前缀 / 摘要 / 禁止边界）")
+						: null;
+
+					const advancedRows = [];
+					if (current.advanced) {
+						advancedRows.push(field("summary", "摘要", "一句话说明这是什么"));
+						advancedRows.push(field("boundary", "禁止边界", "写清不允许怎么用", { area: true }));
+					}
+
+					return [
+						// 形态：新建时是一个**下拉**（只列这一类能有的），编辑时只读——
+						// 换形态等于换一条库，该删了重建。选中后下面那行小字说明它的能力边界。
+						h("div", { key: "formtype", style: S.form },
+							h("span", { style: { ...S.meta, marginTop: 0, minWidth: "84px" } }, "形态"),
+							current.mode === "edit"
+								? h("span", { style: S.tag }, meta.label + " · " + meta.tech)
+								: h("select", {
+									className: "dshs-select",
+									style: { flex: "0 1 300px", width: "auto" },
+									value: current.form,
+									onChange: (event) => {
+										const next = event && event.target ? event.target.value : current.form;
+										// 换形态时保留**类范围与归入**：从「本机文件」进来的，不该因为换个形态就跑到别的类。
+										setRc((prev) => (prev ? {
+											...emptyResource(next),
+											mode: prev.mode, id: prev.id,
+											bucketOverride: prev.bucketOverride,
+											advanced: next === "files" || next === "mcp" || next === "db" ? true : prev.advanced,
+										} : prev));
+									},
+								},
+									...RESOURCE_FORMS.map((item) => h("option", { key: item.form, value: item.form },
+										item.label + "（" + item.tech + "）"))),
+							h("span", { style: { ...S.meta, fontSize: "11px" } }, meta.hint)),
+
+						current.summaryError
+							? h("div", { key: "err", style: { ...S.warn, border: "1px solid " + C.warn, borderRadius: "9px", padding: "9px 11px", marginTop: "10px" } },
+								"⚠ " + current.summaryError + "（共 " + (current.errors || []).length + " 处需要改）"
+								+ (current.hint ? "。" + current.hint : ""))
+							: null,
+
+						h("div", { key: "rows", style: { marginTop: "12px" } }, ...rows),
+						advancedToggle,
+						advancedRows.length > 0 ? h("div", { key: "advrows", style: { marginTop: "8px" } }, ...advancedRows) : null,
+
+						h("div", { key: "foot", style: { marginTop: "16px", paddingTop: "12px", borderTop: "1px solid " + C.border } },
+							h("div", { key: "foothint", style: S.hint },
+								"创建后写入 sources.local.json，无需重启（注册表每次调用重读）。校验与模型侧 stash_source_add 完全同一套。"),
+							h("div", { key: "footbtns", style: { display: "flex", gap: "9px", alignItems: "center", marginTop: "10px" } },
+								h("button", {
+									key: "save", className: "dshs-primary",
+									style: S.btn(Boolean(current.busy)),
+									disabled: Boolean(current.busy),
+									onClick: () => { void postResource(current); },
+								}, current.busy ? "提交中…" : (current.mode === "edit" ? "保存修改" : "创建")),
+								h("button", {
+									key: "cancel2", className: "dshs-ghost", style: S.btn(false),
+									onClick: () => { setRc(null);  setView("libraries"); },
+								}, "取消"))),
+					];
+				};
+
+				/* ══ 资源编辑页（表单主体与新建页共用）════════════════════ */
+
+				if (view === "resource") {
+					const current = rc || emptyResource("http");
+					return h("div", { className: "dshs-root", style: S.wrap },
+						renderCrumbs("编辑 " + current.id),
+						h("div", { style: S.titleRow },
+							h("span", { style: S.title }, "编辑资源"),
+							h("button", {
+								key: "cancel", className: "dshs-ghost", style: { ...S.spacer, ...S.btn(false) },
+								onClick: () => { setRc(null);  setView("libraries"); },
+							}, "取消")),
+						...renderResourceFormBody(),
+						renderRefresh());
+				}
+
+				/* ══ 新建页：**一个页面 + 下拉**（新建什么 → 形态 → 字段）══════ */
+
+				if (view === "create") {
+					const typeRow = h("div", { key: "type", style: S.form },
+						h("span", { style: { ...S.meta, marginTop: 0, minWidth: "84px" } }, "新建什么"),
+						h("select", {
+							className: "dshs-select",
+							style: { flex: "0 1 330px", width: "auto" },
+							value: createType,
+							onChange: (event) => switchCreateType(event && event.target ? event.target.value : "remote"),
+						},
+							...CREATE_OBJECTS.map((item) => h("option", { key: item.id, value: item.id }, item.label))));
+					return h("div", { className: "dshs-root", style: S.wrap },
+						renderCrumbs("新建条目"),
+						h("div", { style: S.titleRow },
+							h("span", { style: S.title }, "新建条目"),
+							h("button", {
+								key: "cancel", className: "dshs-ghost", style: { ...S.spacer, ...S.btn(false) },
+								onClick: () => { setRc(null); setForm(null); setNotice(null); gotoOverview(); },
+							}, "取消")),
+						typeRow,
+						h("div", { key: "typehint", style: S.hint }, (CREATE_OBJECTS.find((item) => item.id === createType) || CREATE_OBJECTS[0]).hint),
+						createType === "account"
+							? (form ? renderForm("账号（只登记元数据；值在账号详情里录）") : null)
+							: h("div", { key: "resbody" }, ...renderResourceFormBody()),
+						renderRefresh());
+				}
+
+
+				/* ══ 首页（总览）：数字优先——资源总数 + 三类各多少 + 台账 + 迁移 ══ */
 
 				if (view === "overview") {
 					const byCategory = stats.byCategory || [];
-					const vaulted = state.accounts.filter((account) => account.inVault !== false).length;
+					const libList = state.libraries || [];
+					const ls = deriveLibraryStats(libList, state.libraryStats);
+					const buckets = withAllBuckets(ls);
 					const pct = stats.fields > 0 ? Math.round((stats.configured / stats.fields) * 100) : 0;
+					const openBucket = (bucket, filter) => {
+						setLibBucket(bucket);
+						setLibFilter(filter || "all");
+						setLibQuery("");
+						setLibOpen({});
+						setView("libraries");
+					};
+					const inBucketOf = (bucket) => libList.filter((lib) => bucketOfLocal(lib) === bucket);
 
-					const openRow = (key, label, note, onClick) => h("button", {
-						key, className: "dshs-rowbtn", style: S.btn(false), onClick,
-					},
-						h("span", { style: { display: "flex", alignItems: "baseline", gap: "8px" } },
-							h("span", { style: S.rowLabel }, label),
-							h("span", { style: { ...S.spacer, color: C.text2, fontSize: "12px" } }, note),
-							h("span", { className: "dshs-arrow", style: { marginLeft: "10px" } }, "→")));
+					/** 三格里那行小字：一眼能看出这一类眼下是什么情况。 */
+					const bucketNote = (group) => {
+						if (group.bucket === "remote") {
+							const accounts = accountsForBucket(state.accounts, inBucketOf("remote"));
+							const refs = accounts.flatMap((account) => account.fields ?? []);
+							const missing = refs.filter((field) => field.configured === false).length;
+							return accounts.length > 0
+								? accounts.length + " 个账号" + (missing > 0 ? " · " + missing + " 把钥匙未配置" : " · 钥匙齐")
+								: "还没有账号";
+						}
+						if (group.bucket === "local-service") {
+							return group.count > 0 ? "依赖本机在跑" : "还没有本机服务";
+						}
+						const files = inBucketOf("local-files").reduce((sum, lib) => sum + (lib.paths?.length ?? 0), 0);
+						return group.count > 0 ? files + " 个路径" : "还没有本地文件";
+					};
 
-					const overviewChildren = [];
+					const children = [];
 
-					overviewChildren.push(h("div", { key: "big", style: S.stats },
-						h("div", { style: S.bigRow },
-							h("span", { style: S.bigNum }, String(stats.fields || 0)),
-							h("span", { style: S.bigLabel }, "把引用名"),
+					children.push(h("div", { key: "res", style: S.sec },
+						h("div", { key: "head", className: "dshs-sec" },
+							h("span", { className: "dshs-secname" }, "资源"),
 							h("button", {
-								key: "all", className: "dshs-ghost", style: { marginLeft: "auto" },
-								onClick: () => gotoList("all", null),
-							}, "查看全部 →")),
-						h("div", { key: "bar", style: { ...S.bar, marginTop: "10px" } },
-							h("div", { style: S.barFill(pct + "%") })),
-						h("div", { key: "mix", style: { ...S.meta, marginTop: "6px" } },
-							stats.configured + " 已配置 · " + stats.missing + " 未配置 · " + pct + "%"
-							+ (stats.unknown > 0 ? " · " + stats.unknown + " 状态未知" : ""))));
+								key: "all", className: "dshs-ghost", style: { ...S.spacer, ...S.btn(false) },
+								onClick: () => openBucket("remote", "all"),
+							}, "全部资源 →")),
+						h("div", { key: "hero", style: S.heroRow },
+							h("span", { style: S.heroNum }, String(ls.total || 0)),
+							h("span", { style: S.heroLabel }, "资源总数"),
+							h("span", { key: "state", style: { ...S.spacer, ...S.dotRow } },
+								h("span", { className: "dshs-dot", style: { background: C.ok } }),
+								h("span", { style: S.count }, (ls.ready || 0) + " 就绪"),
+								(ls.blocked || 0) > 0
+									? h("span", { key: "d", className: "dshs-dot", style: { background: C.warn } })
+									: null,
+								(ls.blocked || 0) > 0
+									? h("button", {
+										key: "blk", className: "dshs-ghost",
+										style: { ...S.count, ...S.btn(false) },
+										onClick: () => openBucket("remote", "blocked"),
+									}, ls.blocked + " 有阻塞 →")
+									: null)),
+						h("div", { key: "grid", style: S.bucketGrid },
+							...buckets.map((group) => h("button", {
+								key: group.bucket, className: "dshs-cell", style: S.btn(false),
+								onClick: () => openBucket(group.bucket, "all"),
+							},
+								h("span", { style: S.cellNum }, String(group.count),
+									h("span", { className: "dshs-dot", style: { background: group.blocked > 0 ? C.warn : C.ok } })),
+								h("span", { style: S.cellLabel }, group.label),
+								h("span", { style: S.cellNote }, bucketNote(group)))))));
 
-					overviewChildren.push(h("div", { key: "where", style: S.section },
-						h("div", { style: S.sectionHead }, "其中"),
-						...byCategory.map((group) => openRow(
-							"c-" + group.category,
-							group.categoryLabel,
-							group.fields + " 把（" + group.accounts + " 个账号）",
-							() => gotoList("all", group.category),
-						)),
-						byCategory.length === 0 ? h("div", { style: S.hint }, "台账还是空的。") : null));
-
-					// 「注意」只在真有未配置时出现；为 0 时整块消失，不写"✓ 全部就绪"。
-					if (stats.missing > 0) {
-						overviewChildren.push(h("div", { key: "watch", style: S.section },
-							h("div", { style: S.sectionHead }, "注意"),
-							openRow("m", "未完成配置", stats.missing + " 把", () => gotoList("missing", null))));
+					// 台账：事实与经验各一行；有"失败却没记经验"的库就在这里点出来。
+					const records = state.records || null;
+					const ledgerRec = records && records.ledger ? records.ledger : null;
+					const lessonsRec = records && records.lessons ? records.lessons : null;
+					if (ledgerRec || lessonsRec) {
+						children.push(h("div", { key: "records", style: S.sec },
+							h("div", { className: "dshs-sec" }, h("span", { className: "dshs-secname" }, "台账")),
+							ledgerRec
+								? h("div", { key: "l", style: { ...S.meta, marginTop: "10px" } },
+									"取数台账 " + ledgerRec.records + " 条"
+									+ (ledgerRec.failed > 0 ? "（失败 " + ledgerRec.failed + "）" : "")
+									+ (ledgerRec.lastAt ? " · 最近 " + String(ledgerRec.lastAt).replace("T", " ").slice(0, 16) : ""))
+								: null,
+							lessonsRec
+								? h("div", { key: "e", style: S.meta },
+									"经验库 " + lessonsRec.total + " 条 · 覆盖 " + lessonsRec.sources + " 个库")
+								: null,
+							(ls.lessonGaps || 0) > 0
+								? h("div", { key: "gap", style: S.warn },
+									"有 " + ls.lessonGaps + " 条库失败过却没记经验 —— 进「资源」看是哪条，让会话记一条。")
+								: null));
 					}
 
-					overviewChildren.push(h("div", { key: "foot", style: { ...S.meta, marginTop: "11px" } },
-						stats.accounts + " 个账号 · 被 " + state.libraries.length + " 条库引用 · 详情已登记 "
-						+ vaulted + "/" + stats.accounts));
-
-					if (state.accounts.length === 0) {
-						overviewChildren.push(h("div", { key: "empty", style: S.hint },
-							"台账还是空的。点右上角「＋ 新建条目」登记，或让模型用 stash_credential_add 建条目。"));
-					}
-
-					if (state.problems && state.problems.length > 0) {
-						overviewChildren.push(h("div", { key: "problems", style: S.warn },
-							"⚠️ 台账 / 注册表有 " + state.problems.length + " 处问题：" + state.problems.join("；")));
-					}
-
-					overviewChildren.push(renderMigration());
+					children.push(h("div", { key: "mig", style: S.sec }, renderMigration()));
 
 					if (!state.credentialsAvailable) {
-						overviewChildren.push(h("div", { key: "nocred", style: S.notice(true) }, "本部署未挂载凭据服务，无法保存。"));
+						children.push(h("div", { key: "nocred", style: S.notice(true) }, "本部署未挂载凭据服务，无法保存。"));
 					}
-					if (notice) overviewChildren.push(h("div", { key: "notice", style: S.notice(notice.bad) }, notice.text));
+					if (state.problems && state.problems.length > 0) {
+						children.push(h("div", { key: "problems", style: S.warn },
+							"⚠️ 注册表有 " + state.problems.length + " 处问题：" + state.problems.join("；")));
+					}
+					if (notice) children.push(h("div", { key: "notice", style: S.notice(notice.bad) }, notice.text));
 
 					return h("div", { className: "dshs-root", style: S.wrap },
 						h("div", { style: S.titleRow },
-							h("span", { style: S.title }, "钥匙"),
+							h("span", { style: S.title }, "stash"),
 							h("button", {
-								key: "new", className: "dshs-ghost", style: { ...S.spacer, ...S.btn(false) },
-								onClick: () => { setForm({ mode: "new", data: emptyForm() }); setView("list"); setLevel1({ filter: "all", category: null }); },
+								key: "new", className: "dshs-ghost",
+								style: { ...S.spacer, ...S.btn(false) },
+								onClick: openCreate,
 							}, "＋ 新建条目")),
-						...overviewChildren,
+						...children,
 						renderConfirm(),
 						renderRefresh());
 				}
+
 
 				/* ══ L2 清单：按分类分箱的账号卡 ═════════════════════════════════ */
 
@@ -1369,15 +2116,27 @@ window.__ModuleLoader__.load({
 							value: data.url,
 							onChange: (event) => patchForm({ url: event.target.value }),
 						})));
+					// 「被哪些库使用」收进「高级」：它是**可选**的补充，不是必填项，
+					// 一屏十来个复选框会让人以为必须逐条勾。库里写了 credentials 的，
+					// 系统自己就认得出来（declaredBy），这里只补"库里没写、但确实用它"的情况。
 					if (state.libraries.length > 0) {
-						rowChildren.push(h("div", { key: "usedby", style: S.form },
-							h("span", { style: S.hint }, "被哪些库使用："),
-							...state.libraries.map((lib) => h("label", { key: lib.id, style: S.check },
-								h("input", {
-									type: "checkbox",
-									checked: data.usedBy.includes(lib.id),
-									onChange: () => toggleUsedBy(lib.id),
-								}), lib.name || lib.id))));
+						rowChildren.push(h("button", {
+							key: "adv-usedby",
+							className: "dshs-ghost",
+							style: S.btn(false),
+							onClick: () => patchForm({ showUsedBy: !data.showUsedBy }),
+						}, (data.showUsedBy ? "▾ " : "▸ ") + "高级：这条账号还给哪些库用（可选）"));
+						if (data.showUsedBy) {
+							rowChildren.push(h("div", { key: "usedby", style: S.form },
+								h("span", { style: S.hint },
+									"只补「库里没声明、但确实用它」的情况——例如钥匙写进 $DSH_HOME/.env 后由某个 MCP 行读取。库里写了 credentials 的不用勾。"),
+								...state.libraries.map((lib) => h("label", { key: lib.id, style: S.check },
+									h("input", {
+										type: "checkbox",
+										checked: data.usedBy.includes(lib.id),
+										onChange: () => toggleUsedBy(lib.id),
+									}), lib.name || lib.id))));
+						}
 					}
 					rowChildren.push(h("textarea", {
 						key: "notes", style: S.area, rows: 2,
@@ -1442,6 +2201,407 @@ window.__ModuleLoader__.load({
 			return StashCredentials;
 		};
 
+		/**
+		 * 「文库」视图：把注册表里的库列出来给人看——**同一个 stash 面板内的一层**，
+		 * 不是并列的第二个设置页。从概览的「已登记的库 N 条」那一行点进来，回退走「← 概览」。
+		 *
+		 * 为什么要有它：注册表原来只对**模型**可见（stash_catalog / /stash 命令），
+		 * 「我登记了哪些库」这个人问的问题在面板上没有答案。
+		 *
+		 * 本视图**不持有任何 hook、也不自己发请求**：数据与筛选状态都由外层页面持有、
+		 * 通过 props 传入，因此它是纯渲染——切层不会有 hook 顺序问题，测试也能直接断言。
+		 * 只读：登记与取数仍走 Model Tool、/stash 命令与两个 json 文件。
+		 * libraries 若是旧的 {id,name} 形状（host 半边还没重载），降级成只显示 id 与名称，不报错。
+		 */
+		const createLibrariesView = () => {
+
+			const fmtTime = (iso) => {
+				if (typeof iso !== "string" || !iso) return "";
+				try { return new Date(iso).toLocaleString(); } catch { return iso; }
+			};
+			/** 行上的时间够用就好：2026-09-28T11:17 → 9/28 11:17（省下十来个字符，行才不折）。 */
+			const fmtShort = (iso) => {
+				if (typeof iso !== 'string' || !iso) return '';
+				const d = new Date(iso);
+				if (Number.isNaN(d.getTime())) return iso;
+				const p2 = (n) => String(n).padStart(2, '0');
+				return (d.getMonth() + 1) + '/' + d.getDate() + ' ' + p2(d.getHours()) + ':' + p2(d.getMinutes());
+			};
+			const fmtBytes = (n) => {
+				if (typeof n !== "number" || !Number.isFinite(n)) return "";
+				if (n < 1024) return n + " B";
+				if (n < 1024 * 1024) return (n / 1024).toFixed(1) + " KB";
+				return (n / 1024 / 1024).toFixed(1) + " MB";
+			};
+			const dotColor = (configured) => (configured === true ? C.ok : configured === false ? C.warn : C.idle);
+
+			/** 旧形状 / 缺字段一律补默认值：面板不因为 host 版本旧就白屏。 */
+			const normalize = (lib) => ({
+				id: String(lib?.id ?? ""),
+				name: typeof lib?.name === "string" && lib.name ? lib.name : String(lib?.id ?? ""),
+				kind: lib?.kind ?? null,
+				kindLabel: lib?.kindLabel ?? "库",
+				handlerLabel: lib?.handlerLabel ?? null,
+				// 分类学字段（DESIGN-taxonomy.md）：host 给就用它的，没给就按 kind 退化。
+				form: lib?.form ?? lib?.kind ?? "unknown",
+				formLabel: lib?.formLabel ?? lib?.handlerLabel ?? lib?.kindLabel ?? "库",
+				channel: lib?.channel ?? (lib?.kind === "files" ? "files" : "net"),
+				channelLabel: lib?.channelLabel ?? (lib?.kind === "files" ? "文件系统" : "网络套接字"),
+				accessMode: lib?.accessMode ?? (lib?.kind === "mcp" ? "external" : lib?.kind === "files" ? "files" : "fetch"),
+				server: lib?.server ?? null,
+				transport: lib?.transport ?? null,
+				tools: typeof lib?.tools === "string" ? lib.tools : "",
+				originLabel: lib?.originLabel ?? null,
+				origin: lib?.origin ?? "local",
+				request: lib?.request ?? null,
+				bucketOverridden: lib?.bucketOverridden === true,
+				accessLabel: lib?.accessLabel ?? "未声明",
+				ready: lib?.ready !== false,
+				blockers: Array.isArray(lib?.blockers) ? lib.blockers : [],
+				summary: typeof lib?.summary === "string" ? lib.summary : "",
+				coverage: typeof lib?.coverage === "string" ? lib.coverage : "",
+				boundary: typeof lib?.boundary === "string" ? lib.boundary : "",
+				actions: Array.isArray(lib?.actions) ? lib.actions : [],
+				notesCount: Number.isFinite(lib?.notesCount) ? lib.notesCount : 0,
+				credentials: Array.isArray(lib?.credentials) ? lib.credentials : [],
+				paths: Array.isArray(lib?.paths) ? lib.paths : [],
+				lessons: Number.isFinite(lib?.lessons?.count) ? lib.lessons : { count: 0 },
+				usage: lib?.usage ?? null,
+				lessonGap: lib?.lessonGap === true,
+				degraded: lib?.kind === undefined || lib?.kind === null,
+			});
+
+			function StashLibraries(props) {
+				const {
+					bucket, bucketLabel, libraries, accounts, problems, sourcesFile, localFile,
+					filter, setFilter, query, setQuery, open, setOpen, onBack, onReload, onOpenAccount, onOpenLedger,
+					acctOpen, setAcctOpen, acctFilter, setAcctFilter,
+					notice,
+					deleteConfirm, onCancelDelete, onConfirmDelete, onEditResource, onDeleteResource,
+				} = props;
+				// 形状与原来自带 state 的版本保持一致，下面整段渲染代码因此一行都不用改。
+				const state = {
+					libraries: libraries || [],
+					stats: null,
+					problems: problems || [],
+					sourcesFile: sourcesFile || null,
+					localFile: localFile || null,
+				};
+
+				const libs = (state.libraries || []).map(normalize);
+				// 这一层的数字只算这一类自己的（host 的 libraryStats 是全局的，这里不用它）。
+				const stats = deriveLibraryStats(libs, null);
+
+				const needle = query.trim().toLowerCase();
+				const visible = libs.filter((lib) => {
+					if (filter === "ready" && !lib.ready) return false;
+					if (filter === "blocked" && lib.ready) return false;
+					if (!needle) return true;
+					return [lib.id, lib.name, lib.summary, lib.coverage, lib.accessLabel, lib.formLabel, lib.server ?? "", lib.tools]
+						.join(" ").toLowerCase().includes(needle);
+				});
+
+				// 筛选：这一层已经只装一类东西了，所以按**状态**收窄就够（形态写在卡片上）。
+				const chips = [
+					{ id: "all", label: "全部", count: stats.total },
+					{ id: "ready", label: "就绪", count: stats.ready },
+					{ id: "blocked", label: "有阻塞", count: stats.blocked },
+				];
+
+				// 删除的二次确认。它不像清空整库那样不可逆，所以只要一次确认、不用输 id。
+				const renderDeleteConfirmCard = () => {
+					const target = deleteConfirm;
+					if (!target) return null;
+					return h("div", { key: "delconfirm", className: "dshs-card", style: { ...S.card, borderColor: C.warn } },
+						h("div", { style: { fontWeight: 600 } }, "确认删除 " + target.id + "？"),
+						h("div", { style: S.meta }, "删除的是这条登记（取数描述、摘要、备注、边界一并去掉）。"),
+						h("div", { style: S.meta },
+							"取数台账不会删（只追加不删）；"
+							+ (target.lessonCount > 0
+								? "该库有 " + target.lessonCount + " 条经验，删后界面上不再显示（数据仍在 lessons.json，可用 stash_lesson_list 查）。"
+								: "该库没有经验记录。")),
+						h("div", { style: { display: "flex", gap: "8px", marginTop: "9px" } },
+							h("button", { key: "no", className: "dshs-ghost", style: S.btn(false), onClick: onCancelDelete }, "取消"),
+							h("button", { key: "yes", className: "dshs-danger", style: S.btn(false), onClick: onConfirmDelete }, "确认删除")));
+				};
+
+				/**
+				 * 资源卡：**一行一条**。
+				 *
+				 * 列表要能被扫，所以行上只留"一眼要看的东西"——名称、id、形态、边界标签、来源，
+				 * 右侧是"最近怎么样"（用量 / 卡在哪 / 经验缺口），末尾一个「详情 ▾」。
+				 * 描述性内容（摘要、覆盖、禁止边界原文、钥匙落点、命令）全在展开里：
+				 * 卡片一度有六行，扫不动列表——那是把详情摊在了列表上。
+				 */
+				const renderCard = (lib) => {
+					const expanded = open[lib.id] === true;
+					const toggle = () => setOpen((prev) => ({ ...prev, [lib.id]: !prev[lib.id] }));
+					const row = [];
+
+					row.push(h("span", { key: "dot", className: "dshs-dot", style: { background: lib.ready ? C.ok : C.warn } }));
+					row.push(h("span", {
+						key: "st",
+						style: { color: lib.ready ? C.ok : C.warn, fontSize: "12px", flex: "0 0 auto" },
+					}, lib.ready ? "就绪" : "有阻塞"));
+					row.push(h("span", {
+						key: "n",
+						style: { fontSize: "13px", fontWeight: 600, flex: "0 1 auto", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
+					}, lib.name));
+					row.push(h("span", { key: "id", style: { ...S.ref, flex: "0 0 auto" } }, lib.id));
+					row.push(h("span", { key: "f", style: { ...S.tag, flex: "0 0 auto" } }, lib.formLabel));
+					if (lib.accessLabel) row.push(h("span", { key: "a", style: { ...S.tag, flex: "0 0 auto" } }, lib.accessLabel));
+					row.push(h("span", { key: "o", style: { ...S.tag, flex: "0 0 auto" } }, lib.origin === "handwritten" ? "手写" : "代写"));
+					if (lib.accessMode === "external") row.push(h("span", { key: "x", style: { ...S.tag, flex: "0 0 auto" } }, "引用型"));
+
+					// 右侧那一串是"更新信息"：坏在哪 / 用了几次 / 最近什么时候 / 有没有经验。
+					// 阻塞时**仍然给用量**——"最近取过没、失败几次"正是要一眼看到的东西。
+					const tail = [];
+					if (!lib.ready) {
+						tail.push(lib.blockers[0] + (lib.blockers.length > 1 ? "（共 " + lib.blockers.length + " 项）" : ""));
+					}
+					if (lib.usage && lib.usage.calls > 0) {
+						tail.push("用过 " + lib.usage.calls + " 次"
+							+ (lib.usage.failures > 0 ? "（失败 " + lib.usage.failures + "）" : "")
+							+ (lib.usage.lastAt ? " · " + fmtShort(lib.usage.lastAt) : ""));
+					} else if (lib.ready) {
+						tail.push("还没取过数");
+					}
+					if (lib.lessons.count > 0) tail.push("经验 " + lib.lessons.count + " 条");
+					if (lib.lessonGap) tail.push("⚠ 失败过未记经验");
+					// 一行装不下就**截断成「…」**（鼠标停上去有完整文本），而不是折到第二行——
+					// 折行会把列表的节奏打乱，扫读时反而更慢。
+					row.push(h("span", {
+						key: "t",
+						title: tail.join(" · "),
+						style: {
+							...S.count, marginLeft: "auto", textAlign: "right",
+							flex: "1 1 auto", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+						},
+					}, tail.join(" · ")));
+					row.push(h("span", {
+						key: "caret", style: { color: C.text2, fontSize: "12px", flex: "0 0 auto" },
+					}, expanded ? "▴" : "▾"));
+
+					const children = [h("div", {
+						key: "row", className: "dshs-rowbtn",
+						title: "点这一行看详情",
+						style: { display: "flex", alignItems: "center", gap: "8px", flexWrap: "nowrap", overflow: "hidden", cursor: "pointer" },
+						onClick: toggle,
+					}, ...row)];
+
+					if (expanded) {
+						const detail = [];
+						if (lib.summary) detail.push(h("div", { key: "sum", style: { lineHeight: 1.7 } }, lib.summary));
+						if (lib.coverage) detail.push(h("div", { key: "cov", style: S.meta }, "覆盖：" + lib.coverage));
+						if (lib.accessMode === "external") {
+							detail.push(h("div", { key: "ext", style: S.meta },
+								"🔗 引用型：不经 stash 取数 · 服务名 " + (lib.server || "<server>") + " · 用 mcp__" + (lib.server || "<server>") + "__<tool> 直连"
+								+ (lib.transport ? " · 承载 " + lib.transport : "")
+								+ (lib.tools ? " · " + lib.tools : "")
+								+ "（调用不进取数台账）"));
+						}
+						if (lib.boundary) detail.push(h("div", { key: "bd", style: S.meta }, "禁止边界：" + lib.boundary));
+						if (lib.actions.length > 0) {
+							detail.push(h("div", { key: "ac", style: S.meta }, "动作：" + lib.actions.map((item) => item.name).join(" / ")));
+						}
+						for (const field of lib.credentials) {
+							detail.push(h("div", {
+								key: "c:" + field.ref,
+								style: { display: "flex", alignItems: "center", gap: "7px", flexWrap: "wrap", marginTop: "3px" },
+							},
+								h("span", { className: "dshs-dot", style: { background: dotColor(field.configured) } }),
+								h("span", { style: S.ref }, field.ref),
+								h("span", { style: S.meta }, field.configured === true ? "已配置"
+									: field.configured === false ? "未配置" : "状态未知"),
+								field.inject ? h("span", { style: S.meta }, "落点 " + field.inject) : null));
+						}
+						if (!lib.ready) detail.push(h("div", { key: "block", style: S.warn }, "卡在哪：" + lib.blockers.join("；")));
+						detail.push(...lib.paths.map((item) => h("div", {
+							key: "p:" + item.path,
+							style: S.meta,
+						}, (item.exists ? "📄 " : "⛔ ") + item.path
+							+ (item.exists ? (typeof item.bytes === "number" ? "  " + fmtBytes(item.bytes) : "") : "  （不存在）"))));
+						if (lib.notesCount > 0) {
+							detail.push(h("div", { key: "nt", style: S.meta },
+								"注意事项 " + lib.notesCount + " 条 · 用 stash_catalog id=\"" + lib.id + "\" 看全文"));
+						}
+						detail.push(h("div", { key: "raw", style: S.meta },
+							lib.accessMode === "external"
+								? "取数：不经 stash（用 mcp__" + (lib.server || "<server>") + "__<tool>）· 登记：sources.mjs / stash_source_add"
+								: lib.accessMode === "files"
+									? "用法：stash_files 检索 + read · 登记：sources.mjs / stash_source_add"
+									: "取数：stash_fetch source=\"" + lib.id + "\" · 体检：stash_doctor"));
+						// 改与删：只对**代写**条目开放。手写文件由你维护，程序永不改写它。
+						const editable = lib.origin !== "handwritten";
+						detail.push(h("div", { key: "actions", style: { display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap", marginTop: "9px" } },
+							editable && onEditResource
+								? h("button", { key: "edit", className: "dshs-ghost", style: S.btn(false), onClick: () => onEditResource(lib) }, "编辑")
+								: null,
+							editable && onDeleteResource
+								? h("button", { key: "del", className: "dshs-danger", style: S.btn(false), onClick: () => onDeleteResource(lib) }, "删除")
+								: null,
+							h("span", { key: "note", style: S.meta },
+								editable
+									? "写在 sources.local.json（代写，可改可删）"
+									: "写在 sources.mjs（手写），程序不改写它")));
+						if (lib.lessonGap) {
+							detail.push(h("div", { key: "gap", style: S.warn },
+								"失败过却没记经验 —— 让会话记一条（stash_lesson_add source=\"" + lib.id + "\"）。"));
+						}
+						children.push(h("div", { key: "detail", style: S.section }, ...detail));
+					}
+
+					return h("div", { key: "lib:" + lib.id, className: "dshs-card", style: S.card }, ...children);
+				};
+
+
+				// 清单按大类分组（物理通道），让"这条库走哪条通道"一眼可见；
+				// 筛选器与搜索只在形态/状态上收窄，分类分组始终保留。
+				const body = [];
+
+				// 账号块：**钥匙跟着它服务的资源走**。所以哪一类里有资源用到钥匙，账号就在那一类里出现。
+				// 今天全部落在「远端接口」；将来本机服务/本机文件需要 token、口令时，它们也会各自出现。
+				if ((accounts || []).length > 0) {
+					// 搜索**一个框管两边**（账号 + 资源）：面板里两个搜索栏，既浪费又让人分不清哪个管哪块。
+					const needleAcct = String(query || "").trim().toLowerCase();
+					const allAccounts = accounts || [];
+					const missingOf = (account) => (account.fields ?? []).filter((field) => field.configured === false).length;
+					// 状态筛选用与资源块**同一个套路**（一个下拉），这样两个二级块才同构。
+					const shown = allAccounts.filter((account) => {
+						if (acctFilter === "ready" && missingOf(account) > 0) return false;
+						if (acctFilter === "missing" && missingOf(account) === 0) return false;
+						if (!needleAcct) return true;
+						return [account.label, account.id, account.url, ...(account.fields ?? []).map((field) => field.ref)]
+							.join(" ").toLowerCase().includes(needleAcct);
+					});
+					const filtered = Boolean(needleAcct) || acctFilter !== "all";
+					const collapsed = !acctOpen && shown.length > 4;
+					const visibleAccounts = collapsed ? shown.slice(0, 4) : shown;
+					body.push(h("div", { key: "acct-head", style: S.groupHead },
+						h("span", { style: S.groupName }, "账号"),
+						h("span", { style: S.spacer }, filtered
+							? "命中 " + shown.length + " / " + allAccounts.length
+							: allAccounts.length + " 个 · " + allAccounts.reduce((sum, account) => sum + (account.fields?.length ?? 0), 0) + " 把钥匙"
+								+ (() => {
+									const miss = allAccounts.flatMap((account) => account.fields ?? []).filter((field) => field.configured === false).length;
+									return miss > 0 ? " · " + miss + " 把未配置" : " · 已配置";
+								})()),
+						h("select", {
+							key: "acct-filter",
+							className: "dshs-select",
+							style: { flex: "0 0 auto", width: "auto" },
+							value: acctFilter,
+							onChange: (event) => setAcctFilter && setAcctFilter(event && event.target ? event.target.value : "all"),
+						},
+							h("option", { key: "all", value: "all" }, "全部"),
+							h("option", { key: "ready", value: "ready" }, "已配置"),
+							h("option", { key: "missing", value: "missing" }, "有未配置")),
+						onOpenLedger
+							? h("button", {
+								key: "all-acct", className: "dshs-ghost", style: S.btn(false),
+								onClick: onOpenLedger,
+							}, "全部账号 →")
+							: null));
+					if (shown.length === 0) {
+						body.push(h("div", { key: "acct-none", style: S.hint }, "没有匹配的账号。"));
+					}
+					body.push(...visibleAccounts.map((account) => {
+						const fields = account.fields ?? [];
+						const missing = fields.filter((field) => field.configured === false).length;
+						// 账号也**一行一条**：字段级细节（每个引用名、落点）进账号详情——
+						// 那里本来就是贴值的地方，列表上只需要"N 把钥匙、几把没配"。
+						return h("div", {
+							key: "acct:" + account.id, className: "dshs-card", style: { ...S.card, padding: "8px 12px" },
+							title: "点这一行看账号详情（贴值 / 换值 / 删值）",
+							onClick: onOpenAccount ? () => onOpenAccount(account.id) : undefined,
+						},
+							h("div", { key: "h", style: { display: "flex", alignItems: "center", gap: "8px", flexWrap: "nowrap", overflow: "hidden", cursor: onOpenAccount ? "pointer" : "default" } },
+								h("span", { className: "dshs-dot", style: { background: missing === 0 ? C.ok : C.warn, flex: "0 0 auto" } }),
+								h("span", {
+									style: { fontSize: "13px", fontWeight: 600, flex: "0 1 auto", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
+								}, account.label),
+								h("span", { style: { ...S.tag, flex: "0 0 auto" } }, account.categoryLabel ?? account.category),
+								h("span", { style: { ...S.ref, flex: "0 0 auto" } }, account.id),
+								h("span", {
+									key: "tail",
+									style: {
+										...S.count, marginLeft: "auto", textAlign: "right",
+										flex: "1 1 auto", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+									},
+								}, fields.length + " 把钥匙" + (missing > 0 ? " · " + missing + " 把未配置" : " · 已配置")),
+								h("span", { key: "caret", style: { color: C.text2, fontSize: "12px", flex: "0 0 auto" } }, "›")));
+					}));
+					if (collapsed) {
+						body.push(h("button", {
+							key: "more-acct", className: "dshs-ghost", style: { ...S.btn(false), marginTop: "4px" },
+							onClick: () => setAcctOpen && setAcctOpen(true),
+						}, "▸ 还有 " + (shown.length - 4) + " 个账号（点开）"));
+					} else if (!collapsed && shown.length > 4 && setAcctOpen) {
+						body.push(h("button", {
+							key: "less-acct", className: "dshs-ghost", style: { ...S.btn(false), marginTop: "4px" },
+							onClick: () => setAcctOpen(false),
+						}, "▴ 收起"));
+					}
+				}
+
+				if (deleteConfirm) body.push(renderDeleteConfirmCard());
+				if (notice) body.push(h("div", { key: "notice", style: S.notice(notice.bad) }, notice.text));
+
+				if (libs.length === 0) {
+					body.push(h("div", { key: "empty", style: S.hint },
+						"这一类里还没有资源。回首页点「＋ 新建条目 → 资源」登记，或直接写 " + (state.sourcesFile || "sources.mjs") + "。"));
+				} else if (visible.length === 0) {
+					body.push(h("div", { key: "nomatch", style: S.hint }, "没有命中当前筛选的资源。"));
+				} else {
+					body.push(h("div", { key: "res-head", style: S.groupHead },
+						h("span", { style: S.groupName }, "资源"),
+						// 资源块的数字**就写在这里、只出现一次**——与账号块同构：
+						// `名称  自身的数字  动作`。筛选与搜索生效时改报命中数（那是新信息）。
+						h("span", { style: S.spacer }, (needle || filter !== "all")
+							? "命中 " + visible.length + " / " + libs.length
+							: libs.length + " 条"
+								+ " · " + stats.ready + " 就绪"
+								+ (stats.blocked > 0 ? " · " + stats.blocked + " 有阻塞" : "")),
+						// 筛选收成一个下拉：一排 chip 既冗余（数字已在上面），又白占一行。
+						h("select", {
+							key: "filter",
+							className: "dshs-select",
+							style: { flex: "0 0 auto", width: "auto" },
+							value: filter,
+							onChange: (event) => setFilter(event && event.target ? event.target.value : "all"),
+						},
+							...chips.map((chip) => h("option", { key: chip.id, value: chip.id }, chip.label)))));
+					body.push(...visible.map(renderCard));
+				}
+
+				return h("div", { className: "dshs-root", style: S.wrap },
+					h("div", { style: S.titleRow },
+						h("span", { style: S.title }, bucketLabel || "资源"),
+						h("button", { key: "back", className: "dshs-ghost", style: { ...S.spacer, ...S.btn(false) }, onClick: onBack }, "← 概览"),
+						h("button", { key: "reload", className: "dshs-ghost", style: S.btn(false), onClick: onReload }, "刷新")),
+					// 类层不再放大数字：数字归到两个块各自的标题行（账号一行、资源一行），
+					// 否则同一组数字会在这一层出现两次——上一版就是这么被指出来的。
+					// 一个搜索框管两边：账号与资源。
+					h("div", { style: S.filters },
+						h("input", {
+							key: "q",
+							style: { ...S.input, flex: "1 1 100%" },
+							placeholder: "搜索账号 / 资源：账号名、网址、引用名、id、名称、摘要",
+							value: query,
+							onChange: (event) => setQuery(event && event.target ? event.target.value : ""),
+						})),
+					state.problems.length > 0
+						? h("div", { key: "problems", style: S.warn }, "⚠️ 注册表有 " + state.problems.length + " 处问题：" + state.problems.join("；"))
+						: null,
+					...body,
+					h("div", { key: "foot", style: { ...S.meta, marginTop: "14px" } },
+						"本层只读。登记改 " + (state.sourcesFile || "sources.mjs")
+						+ (state.localFile ? " / " + state.localFile : "") + "；等效命令 /stash。"));
+			}
+
+			return StashLibraries;
+		};
+
 		// ⚠️ 这里是 Cordis 的「所需服务键」，**不是包名**。
 		// 只声明 slots —— 它在客户端服务目录里确实存在，且是本页注册所必需。
 		// 凭据的 remote 命名空间改为点击时惰性获取：声明一个不存在的服务会让 fiber 永远等下去。
@@ -1496,12 +2656,13 @@ window.__ModuleLoader__.load({
 					return { ...(result || {}), mirror: await notifyMirror("clear", ref) };
 				},
 			};
-			const Section = createSection(api);
+			const LibrariesView = createLibrariesView();
+			const Section = createSection(api, LibrariesView);
 			ctx.slots.inject("settings.section", () => ctx.slots.register({
 				name: "settings.section",
 				id: "stash",
 				order: 30,
-				label: () => "钥匙",
+				label: () => "stash",
 			}, Section));
 		}
 

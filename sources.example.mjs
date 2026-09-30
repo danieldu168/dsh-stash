@@ -1,4 +1,4 @@
-// ─────────────────────────────────────────────────────────────────────────────
+﻿// ─────────────────────────────────────────────────────────────────────────────
 // dsh-stash 注册表示例 —— 复制它作为你自己的起点：
 //
 //   mkdir -p "$DSH_HOME/stash" && cp sources.example.mjs "$DSH_HOME/stash/sources.mjs"
@@ -172,5 +172,84 @@ export default [
       '工作流：别处导出 → 放进上面的路径 → stash_files 列出/检索 → read 读具体文件分析。',
       '集中管理比散落在各个技能目录下更好找。',
     ],
+  },
+
+  // ── 5. MCP 服务：只登记，不经 stash 取数（kind: 'mcp'）──────────────────
+  //     取数由 DSH 直连完成（mcp__<server>__<tool>）。登记它是为了四件事：
+  //     这条服务允许怎么用、要哪把钥匙、踩过什么坑、本机到底有哪些外部资源。
+  //     ⚠️ MCP 调用不进取数台账（它没经过 stash），溯源要看会话日志。
+  {
+    id: 'my_mcp_service',
+    name: '某个 MCP 服务',
+    kind: 'mcp',
+    server: 'my-service',           // DSH profile 里那条 MCP 行的 serverName
+    transport: 'stdio',             // stdio | streamable-http | sse
+    tools: 'mcp__my-service__*',    // 该服务暴露的工具前缀，给模型指路
+    access: 'official-api',
+    credentials: ['MY_SERVICE_KEY'], // 只写引用名；落点见钥匙台账的 inject
+    summary: '把某个 MCP 服务登记进资源清单，供模型与面板知道它的存在、边界与钥匙。',
+    notes: [
+      '它的取数不走 stash_fetch（会被拒绝并指路 mcp__<server>__<tool>），所以**不进台账**。',
+      '⚠️ 若这个 MCP 行读 process.env，凭据值必须写 $DSH_HOME/.env —— 粘在「设置 → 钥匙」面板对该消费者无效。',
+      'transport=stdio 时它实际走子进程管道；另两种走网络。排查故障时先看是哪一种。',
+    ],
+    boundary: '只登记，不代为取数；调用权限由 DSH 的 MCP 行控制。',
+  },
+
+  //    可选：bucket 覆盖面板上的「归入」（remote / local-service / local-files）。
+  //    默认按形状自动判定：files 与 SQLite→本机文件，MCP stdio 与回环地址→本机服务，其余→远端接口。
+  //    只有自动判定会错时才写它（例如本地反向代理把远端服务伪装成 127.0.0.1）。
+
+  // ── 6. 本地数据库：一条源 = 一条只读查询（handler: 'db'）────────────────
+  //     零依赖实现，只支持 SQLite（Node 内置 node:sqlite）。
+  //     服务端数据库请用 handler:'http' 指向它的只读门面。
+  {
+    id: 'my_sqlite',
+    name: '本地 SQLite（只读）',
+    kind: 'remote',
+    handler: 'db',
+    access: 'official-api',
+    request: {
+      engine: 'sqlite',
+      path: join(DSH_HOME, 'stash', 'example.db'),   // 必须是绝对路径
+      sql: 'SELECT id, name FROM people WHERE dept = :dept LIMIT 20',
+      required: ['dept'],
+      limit: 200,
+    },
+    actions: { query: '执行上面那条只读查询；参数用 :name 占位', tables: '列出库里的表与视图' },
+    summary: '用一条固定的只读查询访问本地 SQLite 文件的一部分数据。',
+    notes: [
+      '只读打开 + 只放行单条 SELECT/WITH：写语句与多语句在登记和取数两处都会被拒。',
+      '一条源 = 一条查询。要取别的数据就再登一条，别把整库暴露成"任意 SQL"。',
+    ],
+    boundary: '只读；不写、不建表、不改 schema。',
+  },
+
+  // ── 7. 对象存储 / 文件传输（handler: 'objstore'）────────────────────────
+  //     protocol: 's3'（SigV4 签名，或公开桶匿名）| 'webdav'（PROPFIND + GET）
+  {
+    id: 'my_bucket',
+    name: '对象存储（示例桶）',
+    kind: 'remote',
+    handler: 'objstore',
+    access: 'official-api',
+    credentials: ['EXAMPLE_S3_KEY_ID', 'EXAMPLE_S3_SECRET'],
+    request: {
+      protocol: 's3',
+      endpoint: 'https://s3.example.com',   // 自建 MinIO 就写它的地址
+      bucket: 'example-bucket',
+      prefix: 'reports/',                   // list 的默认前缀
+      region: 'us-east-1',
+      accessKeyIdRef: 'EXAMPLE_S3_KEY_ID',  // 引用名，不是值
+      secretAccessKeyRef: 'EXAMPLE_S3_SECRET',
+      limit: 50,
+    },
+    actions: { list: '按前缀列出对象', get: '取一个对象（key 必填）' },
+    summary: '从 S3 兼容的对象存储里列目录、取文件；文本类才回正文，二进制只回元信息。',
+    notes: [
+      '私有桶用 SigV4 签名（实现已对 AWS 官方测试向量核对）；公开桶不声明凭据即匿名读取。',
+      '不确定的先用 list 看有什么，再 get 取单个对象——别一次取大文件。',
+    ],
+    boundary: '只读示例；不带删除与写入动作。',
   },
 ]

@@ -25,3 +25,19 @@ Thumbs.db
 # （它含你的库清单与凭据引用名；万一有人把它放进包目录做测试，别提交上去。）
 sources.mjs
 sources.local.json
+
+# 同一张安全网，把"运行时数据"也一并挡住：
+# 它们的家是 $DSH_HOME/stash/，但若有人在仓库目录里跑插件（DSH_HOME 指错），
+# 这些文件就会落在仓库里——那时别让它们被提交。
+ledger.ndjson
+lessons.json
+cache/
+corpus/
+stash-export-*/
+
+# 凭据值：任何情况下都不进仓库
+.credentials.yaml
+.credentials.yml
+.env
+.env.*
+!.env.example

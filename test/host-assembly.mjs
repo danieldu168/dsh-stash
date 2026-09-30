@@ -1,4 +1,4 @@
-// host 半边装配测试 —— 专门复现"服务稍后就绪"的竞态，外加台账 v0.5 的账号/字段模型。
+﻿// host 半边装配测试 —— 专门复现"服务稍后就绪"的竞态，外加台账 v0.5 的账号/字段模型。
 //
 // 为什么需要它：0.3.2 的路由注册用了 `ctx.get('webServer')`，在 apply 时服务还没就绪，
 // 拿到 undefined 就静默跳过注册。表现为：工具正常、客户端页面正常渲染、
@@ -161,8 +161,8 @@ check(
 check('没有任何用户消息时返回空串', prompt.latestUserText([{ id: 'a', role: 'user', content: [], source: { kind: 'user' } }]) === '')
 
 const LIB = [
-  { id: 'trade_stats', name: '贸易统计', access: 'official-api', credentials: [{ ref: 'TRADE_KEY', inject: 'header:X-Api-Key' }] },
-  { id: 'paid_db', name: '需人工导出的库', access: 'export-import' },
+  { id: 'trade_stats', name: '贸易统计', kind: 'remote', handler: 'trade_stats', access: 'official-api', credentials: [{ ref: 'TRADE_KEY', inject: 'header:X-Api-Key' }] },
+  { id: 'paid_db', name: '需人工导出的库', kind: 'files', access: 'export-import' },
 ]
 check('命中库 id 时认出那几条', prompt.matchLibraries('trade_stats 里那个数是多少', LIB).map((s) => s.id).join(',') === 'trade_stats')
 check('命中中文名时也认出', prompt.matchLibraries('帮我看看贸易统计', LIB).map((s) => s.id).join(',') === 'trade_stats')
@@ -180,6 +180,13 @@ check('带动作的短语仍然触发（收紧不能收死）', prompt.composeIn
 check('库 id 这条高精度路径不受影响', prompt.composeInjection('trade_stats 里那个数是多少', { sources: LIB }) !== null)
 const intentText = prompt.composeInjection('帮我把外部数据取一下', { sources: LIB, ledger: { records: 2, failed: 0 } })
 check('有取数意图 → 注入通用线索', typeof intentText === 'string' && intentText.includes('已登记 2 条'), String(intentText).split('\n')[0])
+
+// 快照按**形态**汇总，不罗列库 id：id 是每台机器自己的数据，列出来只会过期与占 token。
+const inventory = prompt.buildInventoryText({ registry: { sources: LIB }, ledger: { records: 3, failed: 1 } })
+check('通用线索按形态汇总', inventory.includes('本机已登记 2 条') && inventory.includes('贸易统计 1') && inventory.includes('本地语料 1'), inventory.split('\n')[0])
+check('通用线索不罗列库 id', !inventory.includes('trade_stats') && !inventory.includes('paid_db'), inventory.split('\n')[0])
+check('通用线索点出只能人工导出的条数', inventory.includes('其中 1 条只能人工导出'), inventory)
+check('通用线索带台账数字', inventory.includes('取数台账 3 条（失败 1）'), inventory)
 const hitText = prompt.composeInjection('trade_stats 里那个数是多少', { sources: LIB })
 check(
   '点到具体库 → 注入那几条的要点（含边界与凭据落点）',
@@ -248,7 +255,70 @@ const callRoute = async (method, url, body) => {
   try { return JSON.parse(await callRaw(method, url, body)) } catch { return null }
 }
 
-// ── 迁移端点：/stash/portability ────────────────────────────────────────
+// ── 资源写端点：/stash/sources ─────────────────────────────────────────
+const { loadRegistry } = await import(new URL('../lib/registry.js', import.meta.url))
+// 面板的「新建 / 编辑 / 删除」走这里。它**直接调用 stash_source_add 本体**，
+// 所以校验、密钥扫描、写入与模型侧同一套——这几条断言就是在钉住这一点。
+let srcRaw = null
+const srcRoute = async (method, url, body) => {
+  srcRaw = null
+  await registered.routes['/stash/sources'].handler(
+    makeReq(method, url, body === undefined ? null : JSON.stringify(body)),
+    { writeHead: () => {}, end: (b) => { srcRaw = b } },
+  )
+  try { return JSON.parse(srcRaw) } catch { return null }
+}
+const srcBadBody = await srcRoute('POST', '/stash/sources', '{ 不是 JSON')
+check('资源端点 POST 拒绝非对象请求体', srcBadBody?.ok === false && String(srcBadBody.error).includes('对象'), JSON.stringify(srcBadBody))
+
+const srcBadField = await srcRoute('POST', '/stash/sources', {
+  id: 'zz_route_bad', kind: 'remote', handler: 'http',
+  request: { url: 'https://example.com/x' }, bucket: '不存在的类',
+})
+check('资源端点 POST 复用注册表校验（bucket 非法被拒）', srcBadField?.ok === false && String(srcBadField.error).includes('bucket'), JSON.stringify(srcBadField))
+
+const srcNoId = await srcRoute('POST', '/stash/sources', { kind: 'remote', handler: 'http', request: { url: 'https://example.com/x' } })
+check('资源端点 POST 缺 id 被拒（与 stash_source_add 同样的报错）', srcNoId?.ok === false && String(srcNoId.error).includes('id'), JSON.stringify(srcNoId))
+
+const srcCreated = await srcRoute('POST', '/stash/sources', {
+  id: 'zz_route_lib', name: '路由注册的库', kind: 'remote', handler: 'http',
+  request: { url: 'https://example.com/{p}' }, access: 'public-api', bucket: 'local-service',
+})
+check('资源端点 POST 能新建（返回 ok）', srcCreated?.ok === true, JSON.stringify(srcCreated).slice(0, 160))
+const afterRouteCreate = await loadRegistry()
+const createdEntry = afterRouteCreate.sources.find((s) => s.id === 'zz_route_lib')
+check('新建的条目落在代写文件里，且 bucket 覆盖生效', Boolean(createdEntry) && createdEntry.origin === 'local' && createdEntry.bucket === 'local-service', JSON.stringify(createdEntry ?? null).slice(0, 160))
+
+const srcDup = await srcRoute('POST', '/stash/sources', {
+  id: 'zz_route_lib', name: '重复建', kind: 'remote', handler: 'http', request: { url: 'https://example.com/y' },
+})
+check('同 id 再建不带 overwrite 会被拒（面板"新建"语义）', srcDup?.ok === false, JSON.stringify(srcDup).slice(0, 160))
+
+const srcOverwrite = await srcRoute('POST', '/stash/sources', {
+  id: 'zz_route_lib', name: '改名后的库', kind: 'remote', handler: 'http',
+  request: { url: 'https://example.com/z' }, overwrite: true,
+})
+check('带 overwrite 才是"编辑"语义，能覆盖', srcOverwrite?.ok === true, JSON.stringify(srcOverwrite).slice(0, 160))
+
+// 删除：手写条目拒绝，代写条目真删，并顺带清账号里的 usedBy。
+const srcDelHand = await srcRoute('DELETE', '/stash/sources?id=trade_stats')
+check('删除手写条目被拒（程序永不改写 sources.mjs）', srcDelHand?.ok === false && String(srcDelHand.error).includes('手写'), JSON.stringify(srcDelHand).slice(0, 200))
+
+const srcDelMissing = await srcRoute('DELETE', '/stash/sources?id=zz_not_there')
+check('删除不存在的条目被拒', srcDelMissing?.ok === false, JSON.stringify(srcDelMissing).slice(0, 160))
+
+const srcDelNoId = await srcRoute('DELETE', '/stash/sources')
+check('删除缺 id 被拒', srcDelNoId?.ok === false && String(srcDelNoId.error).includes('id'), JSON.stringify(srcDelNoId))
+
+const srcDelOk = await srcRoute('DELETE', '/stash/sources?id=zz_route_lib')
+check('删除代写条目成功，并说明台账与经验的去向', srcDelOk?.ok === true && String(srcDelOk.note).includes('台账'), JSON.stringify(srcDelOk).slice(0, 200))
+const afterRouteDelete = await loadRegistry()
+check('删掉的条目真的不见了', !afterRouteDelete.sources.some((s) => s.id === 'zz_route_lib'), afterRouteDelete.sources.map((s) => s.id).join(','))
+
+const srcBadMethod = await srcRoute('PUT', '/stash/sources')
+check('资源端点拒绝不支持的方法', srcBadMethod?.ok === false && String(srcBadMethod.error).includes('不支持'), JSON.stringify(srcBadMethod))
+
+
 const callPort = async (method, url, body) =>
   registered.routes['/stash/portability'].handler(
     makeReq(method, url, body),
@@ -301,6 +371,50 @@ check('字段带 secret/inject/multiline 形状', allFields.every((f) => typeof 
 check('端点不回传任何值字段', !/"(value|payload|secretValue)"\s*:/.test(String(initialRaw)))
 check('类别表含 mcp', (initial?.categories ?? []).some((c) => c.id === 'mcp'))
 check('返回库清单（供表单勾选 usedBy）', Array.isArray(initial?.libraries) && initial.libraries.length >= 4, String(initial?.libraries?.length))
+
+// 文库视图（v0.11）：同一份 payload 既供表单勾选 usedBy，也供设置页「文库」渲染。
+// 形状缺一项，面板那边就会少一块信息，所以逐项断言而不是只看长度。
+const libView = initial?.libraries ?? []
+check(
+  '库清单带面板渲染所需字段（kind/边界/就绪/阻塞/凭据/动作/经验）',
+  libView.every((lib) => typeof lib.kind === 'string' && typeof lib.kindLabel === 'string'
+    && typeof lib.accessLabel === 'string' && typeof lib.ready === 'boolean'
+    && Array.isArray(lib.blockers) && Array.isArray(lib.actions) && Array.isArray(lib.credentials)
+    && Array.isArray(lib.paths) && typeof lib.lessons?.count === 'number'),
+  JSON.stringify(libView[0] ?? null).slice(0, 200),
+)
+check('库清单给出统计，且总数 = 清单条数', initial?.libraryStats?.total === libView.length, `${initial?.libraryStats?.total} vs ${libView.length}`)
+check(
+  '统计里各形态相加 = 总数',
+  (initial?.libraryStats?.remote ?? 0) + (initial?.libraryStats?.files ?? 0) + (initial?.libraryStats?.mcp ?? 0) === libView.length,
+  JSON.stringify(initial?.libraryStats),
+)
+check(
+  '统计给出大类与形态两级',
+  Array.isArray(initial?.libraryStats?.byChannel) && Array.isArray(initial?.libraryStats?.byForm)
+    && initial.libraryStats.byChannel.reduce((sum, g) => sum + g.count, 0) === libView.length
+    && initial.libraryStats.byForm.reduce((sum, g) => sum + g.count, 0) === libView.length,
+  JSON.stringify(initial?.libraryStats?.byChannel),
+)
+check(
+  '记录段给出台账与经验汇总',
+  typeof initial?.records?.ledger?.records === 'number' && typeof initial?.records?.lessons?.total === 'number',
+  JSON.stringify(initial?.records),
+)
+const exampleApi = libView.find((lib) => lib.id === 'example_api')
+check(
+  '带凭据的库：凭据没就绪就写进 blockers（面板据此显示「卡在哪」）',
+  Boolean(exampleApi && exampleApi.credentials.length > 0
+    && exampleApi.blockers.some((blocker) => blocker.includes('MY_API_KEY'))),
+  JSON.stringify(exampleApi?.blockers ?? null),
+)
+const corpusLib = libView.find((lib) => lib.id === 'corpus')
+check(
+  '本地语料库：列出路径及其存在性',
+  Boolean(corpusLib && corpusLib.paths.length > 0 && typeof corpusLib.paths[0].exists === 'boolean'),
+  JSON.stringify(corpusLib?.paths?.[0] ?? null),
+)
+check('文库视图同样不回传任何值字段', !/"(value|payload|secretValue)"\s*:/.test(String(initialRaw)))
 check('返回台账文件路径', typeof initial?.localFile === 'string' && typeof initial?.sourcesFile === 'string')
 
 const s0 = initial?.stats
@@ -520,6 +634,61 @@ if (sourceAdd && fetchTool && ledgerTool) {
     request: { url: 'https://example.com/a' },
   })
   check('登记时拒绝非法 access', badAccess.ok === false, badAccess.error ?? '')
+
+  // ── D 类形态：MCP 服务（只登记，不经 stash 取数）────────────────────────
+  const mcpNoServer = await sourceAdd.execute({ id: 'zz_mcp_bad', name: 'x', kind: 'mcp' })
+  check('kind=mcp 缺 server 时拒收', mcpNoServer.ok === false && String(mcpNoServer.error).includes('server'), mcpNoServer.error ?? '')
+
+  const mcpBadTransport = await sourceAdd.execute({ id: 'zz_mcp_bad2', name: 'x', kind: 'mcp', server: 'my-service', transport: 'carrier-pigeon' })
+  check('kind=mcp 的 transport 取值受校验', mcpBadTransport.ok === false, mcpBadTransport.error ?? '')
+
+  const mcpAdded = await sourceAdd.execute({
+    id: 'zz_mcp', name: 'ZZ MCP 服务', kind: 'mcp', server: 'my-service', transport: 'stdio',
+    tools: 'mcp__my-service__*', access: 'official-api', summary: '测试用 MCP 条目',
+  })
+  check('能登记一条 MCP 服务（只登记）', mcpAdded.ok === true, JSON.stringify(mcpAdded).slice(0, 200))
+
+  const mcpFetch = await fetchTool.execute({ source: 'zz_mcp', action: 'anything' })
+  check('MCP 条目被 stash_fetch 明确拒绝并指路直连', mcpFetch.ok === false && mcpFetch.kind === 'registry-only'
+    && String(mcpFetch.hint).includes('mcp__my-service__'), JSON.stringify(mcpFetch).slice(0, 200))
+  check('MCP 被拒时不写取数台账（调用不经过 stash）', mcpFetch.ledgerId === undefined)
+
+  const catalogForMcp = await tools.find((t) => t.name === 'stash_catalog').execute({ id: 'zz_mcp' })
+  const mcpView = catalogForMcp.sources?.[0]
+  check('catalog 标出 MCP 是引用型', mcpView?.kind === 'mcp' && mcpView?.server === 'my-service', JSON.stringify(mcpView ?? null).slice(0, 160))
+  check('catalog 对 MCP 渲染直连提示', tools.find((t) => t.name === 'stash_catalog').output.render({}, catalogForMcp).map((b) => b.text).join('\n').includes('不经 stash 取数'))
+
+  // ── B / C 类形态：登记时的深度校验 ──────────────────────────────────────
+  const dbBadEngine = await sourceAdd.execute({ id: 'zz_db_bad', name: 'x', kind: 'remote', handler: 'db', request: { engine: 'postgres', path: '/tmp/x.db', sql: 'SELECT 1' } })
+  check('handler=db 只接受 engine=sqlite', dbBadEngine.ok === false && JSON.stringify(dbBadEngine.problems ?? []).includes('sqlite'), JSON.stringify(dbBadEngine.problems))
+
+  const dbBadSql = await sourceAdd.execute({ id: 'zz_db_bad2', name: 'x', kind: 'remote', handler: 'db', request: { engine: 'sqlite', path: '/tmp/x.db', sql: 'DELETE FROM t' } })
+  check('handler=db 拒绝非只读 SQL', dbBadSql.ok === false && JSON.stringify(dbBadSql.problems ?? []).includes('只读'), JSON.stringify(dbBadSql.problems))
+
+  const dbOk = await sourceAdd.execute({
+    id: 'zz_db', name: 'ZZ 本地库', kind: 'remote', handler: 'db', access: 'official-api',
+    request: { engine: 'sqlite', path: process.platform === 'win32' ? 'C:/tmp/zz.db' : '/tmp/zz.db', sql: 'SELECT 1 AS one' },
+  })
+  check('能登记一条 SQLite 只读源', dbOk.ok === true, JSON.stringify(dbOk).slice(0, 200))
+
+  const objBadProtocol = await sourceAdd.execute({ id: 'zz_obj_bad', name: 'x', kind: 'remote', handler: 'objstore', request: { protocol: 'ftp', endpoint: 'https://example.com' } })
+  check('handler=objstore 拒绝未知协议', objBadProtocol.ok === false && JSON.stringify(objBadProtocol.problems ?? []).includes('protocol'), JSON.stringify(objBadProtocol.problems))
+
+  const objBadRef = await sourceAdd.execute({
+    id: 'zz_obj_bad2', name: 'x', kind: 'remote', handler: 'objstore', access: 'official-api',
+    request: { protocol: 's3', endpoint: 'https://s3.example.com', bucket: 'b', region: 'us-east-1', accessKeyIdRef: 'NOT_DECLARED' },
+  })
+  check('handler=objstore 拒绝未声明的凭据引用', objBadRef.ok === false && JSON.stringify(objBadRef.problems ?? []).includes('NOT_DECLARED'), JSON.stringify(objBadRef.problems))
+
+  const objOk = await sourceAdd.execute({
+    id: 'zz_obj', name: 'ZZ 对象存储', kind: 'remote', handler: 'objstore', access: 'official-api',
+    credentials: ['ZZ_S3_KEY', 'ZZ_S3_SECRET'],
+    request: {
+      protocol: 's3', endpoint: 'https://s3.example.com', bucket: 'b', region: 'us-east-1',
+      accessKeyIdRef: 'ZZ_S3_KEY', secretAccessKeyRef: 'ZZ_S3_SECRET',
+    },
+  })
+  check('能登记一条 S3 对象存储源', objOk.ok === true, JSON.stringify(objOk).slice(0, 200))
 
   // 使用边界：声明了 export-import 的库，取数被拒且留痕
   const bounded = await sourceAdd.execute({
@@ -769,6 +938,9 @@ for (const account of leftover) {
   const dirty = account.id.startsWith('zz_') || account.fields.some((f) => f.ref.startsWith('ZZ_TEST'))
   if (dirty) await callRoute('DELETE', `/stash/credentials?id=${encodeURIComponent(account.id)}&force=1`, null)
 }
+// 本文件新增的测试源也要清掉：源的 credentials 会被 buildLedger 并成台账账号，残留会让下面那条断言假红。
+const { removeLocalSource } = await import('../lib/shard.js')
+for (const id of ['zz_mcp', 'zz_db', 'zz_obj']) { try { removeLocalSource(id) } catch { /* 不存在就算了 */ } }
 const finalState = await callRoute('GET', '/stash/credentials')
 check('测试条目已清理干净', !(finalState?.accounts ?? []).some((a) => a.id.startsWith('zz_') || a.fields.some((f) => f.ref.startsWith('ZZ_TEST'))))
 

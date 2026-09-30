@@ -3,7 +3,7 @@
 # 安装（在 harness 源码目录执行，路径换成这份代码所在的实际目录）：
 #   pnpm dsh plugin --profile web add "<这份代码所在目录>"
 #   例：Windows "D:\dsh-stash" · macOS/Linux "~/code/dsh-stash"
-#   也可以用 tarball：pnpm dsh plugin --profile web add ./dsh-stash-0.10.0.tgz
+#   也可以用 tarball：pnpm dsh plugin --profile web add ./dsh-stash-0.11.0.tgz
 #
 # 安装即注册十一个 Model Tool：
 #   stash_catalog     列出已登记的库、覆盖范围、取数边界、凭据是否就绪、经验条数
@@ -13,10 +13,26 @@
 #   stash_lesson_add / stash_lesson_list / stash_lesson_remove
 #                     经验库：按库记"踩过的坑与正确写法"（独立于注册表，手写库同样能记）
 #   stash_source_add  在对话里登记新库，会让取数失败的条目当场拒收
-#   stash_doctor      文库本地体检（不联网），含条目深度校验与"有失败却没记经验"提示
+#   stash_doctor      资源本地体检（不联网），含条目深度校验与"有失败却没记经验"提示
 #   stash_credential_add / stash_credential_remove  钥匙台账条目（永不含值）
-# 并在「设置 → 钥匙」加一页，分三层（概览 / 清单 / 账号）用于录入与移除凭据；
-# 页底折叠的「迁移」区块可导出、导入、清空整库，与 /stash 命令调同一批函数。
+# 支持的资源形态（详见 DESIGN-taxonomy.md）：
+#   remote + http       声明式 HTTP 端点（公开/需凭据/带配额/本机端口/GraphQL 都是它的变体）
+#   remote + trade_stats / policy_alerts   内置专用处理器
+#   remote + db         本地 SQLite，一条源 = 一条只读查询（零依赖，node:sqlite）
+#   remote + objstore   S3（SigV4 签名或公开桶）/ WebDAV
+#   files               本地语料：stash_files 检索 + read
+#   mcp                 MCP 服务：只登记，取数由 DSH 直连（mcp__<server>__<tool>），不进台账
+# 「设置 → stash」面板（面板名就是插件名）给出人的入口：
+#   首页数字优先：资源总数 + 三类各多少（远端接口 / 本机服务 / 本机文件）+ 台账 + 迁移（折叠）
+#   任一类点进去：账号块在前（钥匙跟着资源走）、资源块在后；筛选与搜索在类层
+#   卡片详情可「编辑」「删除」——只对代写条目开放，手写 sources.mjs 永远拒绝
+#   「＋ 新建条目」两级下拉：先选账号 / 资源，再选七个细分；校验与 stash_source_add 同一套
+#   钥匙三层（概览 / 清单 / 账号）仍用于录入与移除凭据
+#   资源以前只对模型可见，人问"我登记了哪些库"在界面上没有答案。
+#
+# 面板的写入口（只写 sources.local.json，永不改写手写件）：
+#   POST   /stash/sources             新建 / 覆盖（overwrite: true 才是编辑语义）
+#   DELETE /stash/sources?id=xx       删除，并把它从账号的 usedBy 里摘掉
 #
 # 库清单不在这个文件里，而在用户可编辑的注册表：
 #   $DSH_HOME/stash/sources.mjs      ← 以后加库只改这里
