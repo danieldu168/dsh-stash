@@ -95,9 +95,9 @@ window.__ModuleLoader__.load({
 	/** 空表单。字段刻意只留必填 + 高级，别一上来摊十几个输入框。 */
 	const emptyResource = (form) => ({
 		form, mode: "new", advanced: false, classScope: null,
-		id: "", name: "", access: "public-api", credentials: "", summary: "", boundary: "", bucketOverride: "",
+		id: "", name: "", access: "public-api", credentials: "", summary: "", boundary: "", coverage: "", notesText: "", bucketOverride: "",
 		// 取数（随形态变）
-		url: "", method: "GET", headers: "", required: "", handlerId: "",
+		url: "", method: "GET", headers: "", required: "", handlerId: "", query: "", body: "", pick: "",
 		dbPath: "", sql: "", limit: "",
 		protocol: "s3", endpoint: "", bucket: "", region: "", prefix: "",
 		paths: "",
@@ -127,6 +127,17 @@ window.__ModuleLoader__.load({
 				if (at > 0) headers[line.slice(0, at).trim()] = line.slice(at + 1).trim();
 			}
 			if (Object.keys(headers).length > 0) request.headers = headers;
+			const query = {};
+			for (const line of String(rc.query ?? "").split("\n")) {
+				const at = line.indexOf("=");
+				if (at > 0) query[line.slice(0, at).trim()] = line.slice(at + 1).trim();
+			}
+			if (Object.keys(query).length > 0) request.query = query;
+			if (String(rc.body ?? "").trim()) {
+				const raw = String(rc.body).trim();
+				try { request.body = JSON.parse(raw); } catch { request.body = raw; }
+			}
+			if (String(rc.pick ?? "").trim()) request.pick = String(rc.pick).trim();
 			const required = String(rc.required ?? "").split(/[,\s]+/).map((x) => x.trim()).filter(Boolean);
 			if (required.length > 0) request.required = required;
 			const limit = Number(rc.limit);
@@ -164,6 +175,9 @@ window.__ModuleLoader__.load({
 		if (String(rc.bucketOverride ?? "")) entry.bucket = rc.bucketOverride;
 		if (String(rc.summary ?? "").trim()) entry.summary = String(rc.summary).trim();
 		if (String(rc.boundary ?? "").trim()) entry.boundary = String(rc.boundary).trim();
+		if (String(rc.coverage ?? "").trim()) entry.coverage = String(rc.coverage).trim();
+		const notes = String(rc.notesText ?? "").split("\n").map((x) => x.trim()).filter(Boolean);
+		if (notes.length > 0) entry.notes = notes;
 		if (rc.mode === "edit") entry.overwrite = true;
 		return entry;
 	};
@@ -251,7 +265,7 @@ window.__ModuleLoader__.load({
 		 */
 		const STYLE_ID = "dsh-stash-keys-style";
 		const STYLESHEET = [
-			".dshs-root{color:" + C.text + ";}",
+			".dshs-root{color:" + C.text + ";font-size:13px;}",
 			".dshs-card{background:" + C.layer2 + ";border:1px solid " + C.border + ";border-radius:10px;",
 			"margin-bottom:10px;overflow:hidden;transition:border-color .15s ease;}",
 			".dshs-card:hover{border-color:" + C.borderStrong + ";}",
@@ -271,7 +285,7 @@ window.__ModuleLoader__.load({
 			".dshs-root .dshs-danger{color:" + C.bad + ";border-color:" + C.bad + ";}",
 			".dshs-root .dshs-ghost{border-color:transparent;color:" + C.text2 + ";padding:4px 8px;}",
 			".dshs-root .dshs-ghost:hover:not(:disabled){color:" + C.text + ";background:" + C.layer1 + ";}",
-			".dshs-root input,.dshs-root textarea,.dshs-root select{font:inherit;color:" + C.text + ";",
+			".dshs-root input,.dshs-root textarea,.dshs-root select{font:inherit;font-size:13px;color:" + C.text + ";",
 			"background:" + C.layer1 + ";border:1px solid " + C.borderStrong + ";border-radius:7px;padding:6px 9px;",
 			"transition:border-color .12s ease;}",
 			".dshs-root input:hover,.dshs-root textarea:hover,.dshs-root select:hover{border-color:" + C.text2 + ";}",
@@ -388,7 +402,7 @@ window.__ModuleLoader__.load({
 				fontSize: "11px", padding: "1px 7px", borderRadius: "999px", lineHeight: 1.7,
 				border: "1px solid " + C.border, color: C.text2,
 			},
-			meta: { color: C.text2, fontSize: "12px", marginTop: "3px" },
+			meta: { color: C.text2, fontSize: "12px", marginTop: "4px" },
 			warn: { color: C.warn, fontSize: "12px", marginTop: "4px" },
 			banner: {
 				border: "1px solid " + C.warn, color: C.warn, borderRadius: "9px",
@@ -1287,6 +1301,9 @@ window.__ModuleLoader__.load({
 							rows.push(field("headers", "请求头", "每行一条，如 User-Agent: dsh-stash/1.0", { area: true }));
 							rows.push(field("required", "必填参数", "逗号分隔，如 cik"));
 							rows.push(field("limit", "条数上限", "如 100"));
+							rows.push(field("query", "查询参数", "每行一条 key=value，如 lang=zh", { area: true }));
+							rows.push(field("pick", "取哪一段", "从响应里取哪一段，如 data.items"));
+							rows.push(field("body", "请求体", "POST / PUT 时用；JSON 会按对象发送", { area: true }));
 						}
 					} else if (current.form === "db") {
 						rows.push(field("dbPath", "SQLite 路径", "绝对路径，如 D:/data/app.db"));
@@ -1294,6 +1311,16 @@ window.__ModuleLoader__.load({
 						rows.push(field("required", "必填参数", "逗号分隔，如 dept"));
 						rows.push(field("limit", "行数上限", "如 200"));
 					} else if (current.form === "objstore") {
+						rows.push(h("div", { key: "protocol", style: S.form },
+							h("span", { style: { ...S.meta, marginTop: 0, minWidth: "84px" } }, "协议"),
+							h("select", {
+								className: "dshs-select",
+								style: { flex: "0 1 240px", width: "auto" },
+								value: current.protocol,
+								onChange: (event) => patch("protocol", event && event.target ? event.target.value : "s3"),
+							},
+								h("option", { key: "s3", value: "s3" }, "S3 兼容（含 MinIO）"),
+								h("option", { key: "webdav", value: "webdav" }, "WebDAV 目录"))));
 						rows.push(field("endpoint", "端点", current.protocol === "webdav" ? "https://dav.example.com/dir/" : "https://s3.example.com"));
 						rows.push(field("bucket", "bucket", "webdav 不用填"));
 						if (current.advanced) {
@@ -1338,35 +1365,36 @@ window.__ModuleLoader__.load({
 						"这里只登记**引用名**；值在账号详情里贴，永不经过模型、不进会话记录。"
 						+ (current.form === "objstore" ? "对象存储要按顺序填两个：access key id、secret access key。" : "")));
 
-					// 归入：默认自动判定，可改——本地反向代理会把远端伪装成 127.0.0.1。
-					// 从某一类进来时已经预置成那一类，这里只是"改回去"或"改成别的"的出口。
-					rows.push(h("div", { key: "bucket", style: S.form },
-						h("span", { style: { ...S.meta, marginTop: 0, minWidth: "84px" } }, "归入"),
-						h("select", {
-							className: "dshs-select",
-							style: { flex: "0 1 220px", width: "auto" },
-							value: current.bucketOverride || "",
-							onChange: (event) => patch("bucketOverride", event && event.target ? event.target.value : ""),
-						},
-							...BUCKET_CHOICES.map((choice) => h("option", { key: choice.id || "auto", value: choice.id },
-								choice.id ? choice.label : "自动判定（会归入「" + bucketLabelOf(current.form) + "」）")))));
-					rows.push(h("div", { key: "buckethint", style: S.hint },
-						"只有自动判定会错时才改——比如本地反向代理把远端服务伪装成 127.0.0.1。"));
-
 					const advancedToggle = ["http", "objstore"].includes(current.form)
 						? h("button", {
 							key: "adv", className: "dshs-ghost", style: S.btn(false),
 							onClick: () => patch("advanced", !current.advanced),
-						}, (current.advanced ? "▾ " : "▸ ") + "高级（请求头 / 必填参数 / 条数上限 / 前缀 / 摘要 / 禁止边界）")
+						}, (current.advanced ? "▾ " : "▸ ") + "高级（请求头 / 查询参数 / 取哪一段 / 请求体 / 必填参数 / 条数上限 / 覆盖范围 / 摘要 / 禁止边界 / 注意事项）")
 						: null;
 
 					const advancedRows = [];
 					if (current.advanced) {
 						advancedRows.push(field("summary", "摘要", "一句话说明这是什么"));
 						advancedRows.push(field("boundary", "禁止边界", "写清不允许怎么用", { area: true }));
+						advancedRows.push(field("coverage", "覆盖范围", "这份数据覆盖什么，如 2020–2025 · 月度"));
+						advancedRows.push(field("notesText", "注意事项", "每行一条；取数前该知道的事", { area: true }));
 					}
 
 					return [
+						// 类别：就是首页那三类（资源的归属）。默认按形态自动判定，也可以直接点选一类。
+						h("div", { key: "bucket", style: S.form },
+							h("span", { style: { ...S.meta, marginTop: 0, minWidth: "84px" } }, "类别"),
+							h("select", {
+								className: "dshs-select",
+								style: { flex: "0 1 240px", width: "auto" },
+								value: current.bucketOverride || "",
+								onChange: (event) => patch("bucketOverride", event && event.target ? event.target.value : ""),
+							},
+								...BUCKET_CHOICES.map((choice) => h("option", { key: choice.id || "auto", value: choice.id },
+									choice.id ? choice.label : "自动判定（按形态会归入「" + bucketLabelOf(current.form) + "」）")))),
+						h("div", { key: "buckethint", style: S.hint },
+							"三类就是首页那三类。默认不用管；只有自动判定会错时才选——比如本地反向代理把远端服务伪装成 127.0.0.1。"),
+
 						// 形态：新建时是一个**下拉**（只列这一类能有的），编辑时只读——
 						// 换形态等于换一条库，该删了重建。选中后下面那行小字说明它的能力边界。
 						h("div", { key: "formtype", style: S.form },

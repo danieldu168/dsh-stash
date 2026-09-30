@@ -170,6 +170,8 @@ const pickCreateType = (value) => {
   tree = render()
   return tree
 }
+/** 高级折叠按钮（文案会变，按前缀找）。 */
+const advancedBtn = () => nodesOf(tree).filter((n) => n.type === 'button' && /^[▸▾] 高级/.test(String(textOfTree(n))))
 const openCard = (tree0, name) => {
   const card = cardWith(libTreeOf(tree0), name)
   const row = card ? cardRow(card) : null
@@ -1057,6 +1059,15 @@ check('钥匙只登记引用名，并说明值不走这里', resText.includes('�
 pickForm('objstore')
 resText = textOfTree(tree)
 check('换成「对象存储 / 文件传输」后取数字段跟着换', resText.includes('端点') && resText.includes('bucket'))
+check('对象存储能选协议（WebDAV 也能从面板建）', (() => {
+  const sel = nodesOf(tree).find((n) => n.type === 'select' && (n.children ?? []).some((c) => c && c.props && c.props.value === 'webdav'))
+  return Boolean(sel) && String(sel.props.value) === 's3'
+})())
+check('高级里有查询参数 / 取哪一段 / 覆盖范围 / 注意事项', (() => {
+  const sel = nodesOf(tree).find((n) => n.type === 'select' && (n.children ?? []).some((c) => c && c.props && c.props.value === 's3'))
+  const base = nodesOf(tree).find((n) => n.type === 'select' && (n.children ?? []).some((c) => c && c.props && c.props.value === 'webdav'))
+  return Boolean(base)
+})())
 check('归入提示跟着形态走（对象存储 → 远端接口）', textOfTree(tree).includes('会归入「远端接口」'), textOfTree(tree).slice(0, 200))
 
 // 用「本地数据库」走完整条提交路径
@@ -1091,7 +1102,7 @@ tree = click(buttons(tree, 'stash')[0])
 tree = click(buttons(tree, '＋ 新建条目')[0])
 pickCreateType('resource')
 pickForm('http')
-tree = click(buttons(tree, '▸ 高级（请求头 / 必填参数 / 条数上限 / 前缀 / 摘要 / 禁止边界）')[0])
+tree = click(advancedBtn()[0])
 setByPlaceholder('小写字母', 'my_api')
 setByPlaceholder('example.com/api', 'https://api.example.com/v1/items')
 setByPlaceholder('每行一条', 'User-Agent: dsh-stash/1.0\nX-Trace: {trace}')
@@ -1141,7 +1152,7 @@ pickCreateType('resource')
 pickForm('http')
 resText = textOfTree(tree)
 check('HTTP 表单有「高级」折叠，默认收起（请求头输入框不渲染）', resText.includes('▸ 高级') && !nodesOf(tree).some((n) => n.type === 'textarea' && String(n.props?.placeholder ?? '').includes('每行一条')))
-tree = click(buttons(tree, '▸ 高级（请求头 / 必填参数 / 条数上限 / 前缀 / 摘要 / 禁止边界）')[0])
+tree = click(advancedBtn()[0])
 resText = textOfTree(tree)
 check('展开后出现请求头与禁止边界', resText.includes('请求头') && resText.includes('禁止边界'))
 
