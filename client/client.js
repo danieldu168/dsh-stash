@@ -1433,6 +1433,7 @@ window.__ModuleLoader__.load({
 						// 换形态等于换一条库，该删了重建。选中后下面那行小字说明它的能力边界。
 						h("div", { key: "formtype", style: S.fieldRow },
 							h("span", { style: S.rowLabel }, "形态"),
+							h("div", { style: S.fieldControl },
 							current.mode === "edit"
 								? h("span", { style: S.tag }, meta.label + " · " + meta.tech)
 								: h("select", {
@@ -1452,7 +1453,7 @@ window.__ModuleLoader__.load({
 								},
 									...formsOfClass(current.classScope).map((item) => h("option", { key: item.form, value: item.form },
 										item.label + "（" + item.tech + "）"))),
-							h("span", { style: { ...S.meta, fontSize: "11px" } }, meta.hint)),
+							h("div", { key: "formhint", style: S.hint }, meta.hint))),
 
 						current.summaryError
 							? h("div", { key: "err", style: { ...S.warn, border: "1px solid " + C.warn, borderRadius: "9px", padding: "9px 11px", marginTop: "10px" } },
