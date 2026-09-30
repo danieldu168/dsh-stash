@@ -245,7 +245,7 @@ const PAYLOAD = {
       handler: 'http', handlerLabel: '声明式 HTTP', handlerAvailable: true,
       form: 'http', formLabel: '声明式 HTTP', channel: 'net', channelLabel: '网络套接字', accessMode: 'fetch',
       server: null, transport: null, tools: '',
-      request: { url: 'https://data.sec.gov/submissions/CIK{cik}.json', method: 'GET', required: ['cik'] },
+      request: { url: 'https://api.example.test/submissions/CIK{cik}.json', method: 'GET', required: ['cik'] },
       origin: 'local', originLabel: '代写', access: 'public-api', accessLabel: '公开免登录',
       fetchRefused: false, ready: true, blockers: [],
       summary: 'SEC 官方公开申报接口。', coverage: '10-K / 10-Q',
@@ -1280,7 +1280,7 @@ check('代写条目标注来源（sources.local.json）', textOfTree(localCard).
 tree = click(editBtn)
 resText = textOfTree(tree)
 check('编辑表单预填 id 与名称', nodesOf(tree).some((n) => n.type === 'input' && n.props?.value === 'sec_edgar'))
-check('编辑表单预填取数描述（url / method 回填）', nodesOf(tree).some((n) => n.type === 'input' && String(n.props?.value ?? '').includes('data.sec.gov')))
+check('编辑表单预填取数描述（url / method 回填）', nodesOf(tree).some((n) => n.type === 'input' && String(n.props?.value ?? '').includes('api.example.test')))
 check('编辑时形态只读（换形态等于换一条库）', !resText.includes('内置处理器 · 贸易统计'), resText.slice(0, 160))
 
 sourceCalls.length = 0
