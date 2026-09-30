@@ -306,10 +306,11 @@ window.__ModuleLoader__.load({
 			".dshs-root .dshs-danger{color:" + C.bad + ";border-color:" + C.bad + ";}",
 			".dshs-root .dshs-ghost{border-color:transparent;color:" + C.text2 + ";padding:4px 8px;}",
 			".dshs-root .dshs-ghost:hover:not(:disabled){color:" + C.text + ";background:" + C.layer1 + ";}",
-			".dshs-root input,.dshs-root textarea,.dshs-root select{font:inherit;font-size:13px;color:" + C.text + ";",
+			".dshs-root input,.dshs-root textarea,.dshs-root select{font-family:inherit !important;font-size:13px !important;color:" + C.text + ";",
 			"background:" + C.layer1 + ";border:1px solid " + C.borderStrong + ";border-radius:7px;padding:6px 9px;",
 			"transition:border-color .12s ease;}",
 			".dshs-root input:hover,.dshs-root textarea:hover,.dshs-root select:hover{border-color:" + C.text2 + ";}",
+			".dshs-root input::placeholder,.dshs-root textarea::placeholder{color:" + C.text2 + ";opacity:.7;}",
 			".dshs-root input:focus,.dshs-root textarea:focus,.dshs-root select:focus{outline:none;border-color:" + C.brand + ";}",
 			".dshs-root ::placeholder{color:" + C.text2 + ";opacity:.7;}",
 			".dshs-root .dshs-dot{width:7px;height:7px;border-radius:50%;flex:0 0 auto;display:inline-block;}",
@@ -368,9 +369,9 @@ window.__ModuleLoader__.load({
 			// 表单：标签列 + 控件列。控件一律占满控件列，「右边缘对齐」是这张表单不显乱的关键。
 			fieldRow: { display: "flex", alignItems: "flex-start", gap: "12px", marginTop: "12px" },
 			fieldControl: { flex: "1 1 auto", minWidth: 0 },
-			fullInput: { width: "100%" },
-			fullSelect: { width: "100%" },
-			rowLabel: { fontSize: "13px", color: C.text2, flex: "0 0 auto", minWidth: "84px", paddingTop: "7px" },
+			fullInput: { width: "100%", fontSize: "13px", color: C.text },
+			fullSelect: { width: "100%", fontSize: "13px", color: C.text },
+			rowLabel: { fontSize: "13px", color: C.text2, flex: "0 0 auto", minWidth: "84px", paddingTop: "7px", whiteSpace: "nowrap" },
 			// 高级：一条有边框的控件行，而不是一句会被当成正文的长句。
 			advBox: { marginTop: "16px", border: "1px solid " + C.border, borderRadius: "9px", overflow: "hidden" },
 			advHead: {
@@ -446,8 +447,8 @@ window.__ModuleLoader__.load({
 			},
 			form: { display: "flex", gap: "8px", marginTop: "8px", alignItems: "center", flexWrap: "wrap" },
 			// input/textarea/select 的边框、背景、focus 态都在样式表里，这里只留布局。
-			input: { flex: "1 1 200px", minWidth: "140px" },
-			area: { width: "100%", minHeight: "64px" },
+			input: { flex: "1 1 200px", minWidth: "140px", fontSize: "13px", color: C.text },
+			area: { width: "100%", minHeight: "64px", fontSize: "13px", color: C.text },
 			check: { display: "inline-flex", alignItems: "center", gap: "5px", fontSize: "12px", color: C.text2 },
 			btn: (disabled) => (disabled ? { opacity: 0.45 } : {}),
 			hint: { color: C.text2, fontSize: "11px", lineHeight: 1.6 },
