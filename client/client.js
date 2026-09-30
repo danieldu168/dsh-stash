@@ -310,7 +310,7 @@ window.__ModuleLoader__.load({
 			"background:" + C.layer1 + ";border:1px solid " + C.borderStrong + ";border-radius:7px;padding:6px 9px;",
 			"transition:border-color .12s ease;}",
 			".dshs-root input:hover,.dshs-root textarea:hover,.dshs-root select:hover{border-color:" + C.text2 + ";}",
-			".dshs-root input::placeholder,.dshs-root textarea::placeholder{color:" + C.text2 + ";opacity:.7;}",
+			".dshs-root input::placeholder,.dshs-root textarea::placeholder{font-size:11px !important;color:" + C.text2 + ";opacity:.7;}",
 			".dshs-root input:focus,.dshs-root textarea:focus,.dshs-root select:focus{outline:none;border-color:" + C.brand + ";}",
 			".dshs-root ::placeholder{color:" + C.text2 + ";opacity:.7;}",
 			".dshs-root .dshs-dot{width:7px;height:7px;border-radius:50%;flex:0 0 auto;display:inline-block;}",
@@ -351,6 +351,13 @@ window.__ModuleLoader__.load({
 			}
 		}
 
+		/**
+		 * 字号体系：**只在这里定义**。
+		 *   标签 14（主导）→ 值 13 → 占位/说明 11 → 元信息 12
+		 * 表单里出现新字号就是不在这套体系里，测试会挡。
+		 */
+		const TYPE = { label: "14px", value: "13px", note: "11px", meta: "12px", title: "19px", group: "13px" };
+
 		const S = {
 			// 宽度交给设置面板的内容列决定，不再写死 860px（那会让行过长、阅读疲劳）。
 			wrap: { padding: "2px 0 8px", maxWidth: "100%" },
@@ -367,11 +374,11 @@ window.__ModuleLoader__.load({
 			// 段落容器：整页几段用同一个节奏，段间留白而不是加线。
 			sec: { marginTop: "24px" },
 			// 表单：标签列 + 控件列。控件一律占满控件列，「右边缘对齐」是这张表单不显乱的关键。
-			fieldRow: { display: "flex", alignItems: "flex-start", gap: "12px", marginTop: "12px" },
+			fieldRow: { display: "flex", alignItems: "flex-start", gap: "14px", marginTop: "14px" },
 			fieldControl: { flex: "1 1 auto", minWidth: 0 },
 			fullInput: { width: "100%", fontSize: "13px", color: C.text },
 			fullSelect: { width: "100%", fontSize: "13px", color: C.text },
-			rowLabel: { fontSize: "13px", color: C.text2, flex: "0 0 104px", width: "104px", paddingTop: "7px", whiteSpace: "nowrap" },
+			rowLabel: { fontSize: TYPE.label, color: C.text2, flex: "0 0 104px", width: "104px", paddingTop: "6px", whiteSpace: "nowrap", textAlign: "right" },
 			// 高级：一条有边框的控件行，而不是一句会被当成正文的长句。
 			advBox: { marginTop: "16px", border: "1px solid " + C.border, borderRadius: "9px", overflow: "hidden" },
 			advHead: {
@@ -415,7 +422,6 @@ window.__ModuleLoader__.load({
 			barFill: (w) => ({ height: "100%", width: w, background: C.brand }),
 			section: { borderTop: "1px solid " + C.border, paddingTop: "11px", marginTop: "11px" },
 			sectionHead: { fontSize: "12px", color: C.text2, marginBottom: "5px" },
-			rowLabel: { fontSize: "13px", fontWeight: 600 },
 			rowNote: { fontSize: "12px", color: C.text2, marginTop: "2px" },
 			group: { marginTop: "22px" },
 			groupHead: {
@@ -439,7 +445,7 @@ window.__ModuleLoader__.load({
 				fontSize: "11px", padding: "1px 7px", borderRadius: "999px", lineHeight: 1.7,
 				border: "1px solid " + C.border, color: C.text2,
 			},
-			meta: { color: C.text2, fontSize: "12px", marginTop: "4px" },
+			meta: { color: C.text2, fontSize: TYPE.meta, marginTop: "4px" },
 			warn: { color: C.warn, fontSize: "12px", marginTop: "4px" },
 			banner: {
 				border: "1px solid " + C.warn, color: C.warn, borderRadius: "9px",
@@ -451,7 +457,7 @@ window.__ModuleLoader__.load({
 			area: { width: "100%", minHeight: "64px", fontSize: "13px", color: C.text },
 			check: { display: "inline-flex", alignItems: "center", gap: "5px", fontSize: "12px", color: C.text2 },
 			btn: (disabled) => (disabled ? { opacity: 0.45 } : {}),
-			hint: { color: C.text2, fontSize: "11px", lineHeight: 1.6 },
+			hint: { color: C.text2, fontSize: TYPE.note, lineHeight: 1.6 },
 			notice: (bad) => ({ marginTop: "10px", fontSize: "12px", color: bad ? C.bad : C.ok }),
 			confirm: { borderColor: C.bad },
 			foldHead: { display: "flex", alignItems: "baseline", gap: "8px", flexWrap: "wrap" },
@@ -1334,7 +1340,7 @@ window.__ModuleLoader__.load({
 							errorOf(key) ? h("div", { style: S.warn }, errorOf(key).message) : null));
 
 					const rows = [];
-					rows.push(field("id", "id", "小写字母/数字/-/_，如 my_service"));
+					rows.push(field("id", "ID", "小写字母/数字/-/_，如 my_service"));
 					rows.push(field("name", "名称", "人看的名字，如 SEC EDGAR · 申报清单"));
 
 					if (current.form === "http") {
@@ -1504,7 +1510,7 @@ window.__ModuleLoader__.load({
 				/* ══ 新建页：**一个页面 + 下拉**（新建什么 → 形态 → 字段）══════ */
 
 				if (view === "create") {
-					const typeRow = h("div", { key: "type", style: S.form },
+					const typeRow = h("div", { key: "type", style: S.fieldRow },
 						h("span", { style: S.rowLabel }, "新建什么"),
 						h("select", {
 							className: "dshs-select",

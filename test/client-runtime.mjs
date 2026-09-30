@@ -1061,9 +1061,20 @@ check('边界是一个下拉，两个硬门禁带 ◇', (() => {
   const labels = (sel.children ?? []).map((c) => String(textOfTree(c)))
   return labels.length === 4 && labels.some((x) => x.includes('◇')) && labels.some((x) => x.includes('公开免登录'))
 })())
-check('行标签字号不小于框里的值（13px）', (() => {
+check('字号体系：标签 14 / 值 13 / 占位与说明 11', (() => {
   const label = nodesOf(tree).find((n) => n.type === 'span' && (n.children ?? [])[0] === '新建什么')
-  return label && String(label.props.style?.fontSize) === '13px'
+  const sel = nodesOf(tree).find((n) => n.type === 'select' && n.props?.style?.fontSize === '13px')
+  const hasPlaceholderRule = /input::placeholder[^}]*font-size:11px !important/.test(src)
+  return String(label?.props?.style?.fontSize) === '14px' && Boolean(sel) && hasPlaceholderRule
+})(), '标签 ' + String((nodesOf(tree).find((n) => n.type === 'span' && (n.children ?? [])[0] === '新建什么') || {}).props?.style?.fontSize))
+check('ID 标签用大写', (() => {
+  const labels = nodesOf(tree).filter((n) => n.type === 'span').map((n) => String(textOfTree(n)))
+  return labels.includes('ID') && !labels.includes('id')
+})())
+check('标签右对齐且在固定列里', (() => {
+  const label = nodesOf(tree).find((n) => n.type === 'span' && (n.children ?? [])[0] === '新建什么')
+  const st = label?.props?.style ?? {}
+  return st.textAlign === 'right' && String(st.width) === '104px' && st.whiteSpace === 'nowrap'
 })())
 check('钥匙只登记引用名，并说明值不走这里', resText.includes('只登记') && resText.includes('值在账号详情里贴'))
 
