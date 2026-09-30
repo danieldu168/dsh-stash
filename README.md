@@ -27,7 +27,7 @@
 | 内置专用处理器（贸易统计 / 政策通报） | `kind: "remote"` + 对应 `handler` | `stash_fetch` |
 | **本地数据库（SQLite，只读单查询）** | `kind: "remote"` + `handler: "db"` | `stash_fetch` |
 | **对象存储 / 文件传输（S3、WebDAV）** | `kind: "remote"` + `handler: "objstore"` | `stash_fetch` |
-| **本地语料** | `kind: "files"` | `stash_files` 检索 + `read` |
+| **文档与数据文件**（文档里也叫「本地语料」F 类） | `kind: "files"` | `stash_files` 检索 + `read` |
 | **MCP 服务**（只登记，不代为取数） | `kind: "mcp"` | 用 DSH 直连 `mcp__<server>__<tool>` |
 
 资源之外还管着四样**记录**：钥匙台账、取数台账、经验库，加上该库允许怎么取的那份声明。
@@ -338,7 +338,7 @@ export default [
     内置处理器         trade_stats / policy_alerts                              → 远端接口
     本地数据库         db · SQLite              只支持 SQLite；其他库走 HTTP 门面 → 本机文件
     对象存储           objstore · S3 / WebDAV   SFTP、SMB 直连暂不支持          → 远端接口
-    本地语料           files                    文件或目录，只登记路径            → 本机文件
+    文档与数据文件     files                    文件或目录，只登记路径            → 本机文件
     MCP 服务           mcp                      只登记；取数走 DSH 直连          → 本机服务 / 远端接口
 ```
 

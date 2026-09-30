@@ -60,8 +60,8 @@ window.__ModuleLoader__.load({
 			hint: "S3 兼容的桶（含 MinIO）或 WebDAV 目录：列对象、取单个文件。",
 		},
 		{
-			form: "files", label: "本地语料", tech: "files", kind: "files", handler: null,
-			hint: "磁盘上的文件或目录，只登记路径；面板不会替你搬文件。",
+			form: "files", label: "文档与数据文件", tech: "files", kind: "files", handler: null,
+			hint: "你磁盘上的文件或目录（PDF / CSV / Markdown / 写作规范…）：只登记路径，取用时先检索再按需读；面板不会替你搬文件。",
 		},
 		{
 			form: "mcp", label: "MCP 服务", tech: "mcp", kind: "mcp", handler: null,
@@ -98,7 +98,7 @@ window.__ModuleLoader__.load({
 	const CLASS_FORMS = {
 		remote: { label: "远端接口", hint: "网络上的东西：接口、内置处理器、对象存储、MCP(http)", forms: ["http", "builtin", "objstore", "mcp"] },
 		"local-service": { label: "本机服务", hint: "本机在跑的服务（回环地址）或 MCP(stdio)", forms: ["http", "mcp"] },
-		"local-files": { label: "本机文件", hint: "本地语料（文件 / 目录）或本地数据库（SQLite）", forms: ["files", "db"] },
+		"local-files": { label: "本机文件", hint: "你磁盘上的文档与数据文件（PDF / CSV / Markdown…），或本地 SQLite 数据库", forms: ["files", "db"] },
 	};
 	/** 同一个形态在不同类里的说法不同：http 在「本机服务」里就是本机端口。 */
 	const formLabelIn = (form, classId) => {
@@ -1388,7 +1388,7 @@ window.__ModuleLoader__.load({
 
 					// 使用边界：**一个下拉**（四个值里两个是硬门禁）。四个 chip 会折成两行，
 					// 加上后面那段说明，一屏里全是字——下拉把选择收起来，说明压成一行。
-					// 本地文件那一类（本地语料 / 本地数据库）不上网取数、也不需要凭据，
+					// 本机文件那一类（文档与数据文件 / 本地数据库）不上网取数、也不需要凭据，
 					// 问「使用边界」「钥匙」是错问——这两组只在真会去网络上取数的形态里出现。
 					const asksAccess = current.form !== "files" && current.form !== "db";
 					if (asksAccess) rows.push(h("div", { key: "access", style: S.fieldRow },

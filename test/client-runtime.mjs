@@ -1036,7 +1036,7 @@ check('「新建什么」就是首页那三类', (() => {
 check('页面上不再有重复的「类别」行', !createText.includes('类别就是首页那三类') && (createText.match(/类别/g) || []).length === 0)
 check('默认落在「远端接口」，形态只列这一类能有的（4 项）',
   formOptions().join(',') === 'http,builtin,objstore,mcp', formOptions().join(','))
-check('选类之后形态自动收窄：本机文件 → 本地语料 / 本地数据库', (() => {
+check('选类之后形态自动收窄：本机文件 → 文档与数据文件 / 本地数据库', (() => {
   pickCreateType('local-files')
   return formOptions().join(',') === 'files,db'
 })(), formOptions().join(','))
