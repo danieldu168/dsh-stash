@@ -1339,6 +1339,11 @@ window.__ModuleLoader__.load({
 								}),
 							errorOf(key) ? h("div", { style: S.warn }, errorOf(key).message) : null));
 
+					/** 方框下的注释：空标签列占位，让说明与方框同一起点（不要从面板最左边起）。 */
+					const hintRow = (key, text, style) => h("div", { key, style: S.fieldRow },
+						h("span", { key: "sp", style: S.rowLabel }, ""),
+						h("div", { style: S.fieldControl }, h("div", { style: { ...S.hint, ...(style || {}) } }, text)));
+
 					const rows = [];
 					rows.push(field("id", "ID", "小写字母/数字/-/_，如 my_service"));
 					rows.push(field("name", "名称", "人看的名字，如 SEC EDGAR · 申报清单"));
@@ -1379,8 +1384,7 @@ window.__ModuleLoader__.load({
 						}
 					} else if (current.form === "files") {
 						rows.push(field("paths", "路径", "每行一条；如 D:/corpus/a.csv", { area: true }));
-						rows.push(h("div", { key: "corpus", style: S.warn },
-							"面板不会替你搬文件：先把文件放进 corpus 目录，再回来填路径。"));
+						rows.push(hintRow("corpus", "面板不会替你搬文件：先把文件放进 corpus 目录，再回来填路径。", S.warn));
 					} else if (current.form === "mcp") {
 						rows.push(field("server", "服务名", "DSH profile 里那条 MCP 行的 serverName，如 my-service"));
 						rows.push(h("div", { key: "tr", style: S.fieldRow },
@@ -1409,12 +1413,10 @@ window.__ModuleLoader__.load({
 							h("option", { key: "official-api", value: "official-api" }, "官方 API / 需授权"),
 							h("option", { key: "export-import", value: "export-import" }, "◇ 只能人工导出（硬门禁）"),
 							h("option", { key: "unsupported", value: "unsupported" }, "◇ 明确不做（硬门禁）"))));
-					if (asksAccess) rows.push(h("div", { key: "accounthint", style: S.hint },
-						"带 ◇ 的两个是硬门禁：选了它们，stash_fetch 直接拒绝取数、只留痕；另外两个是声明。"));
+					if (asksAccess) rows.push(hintRow("accounthint", "带 ◇ 的两个是硬门禁：选了它们，取数工具直接拒绝取数、只留痕；另外两个是声明。"));
 
 					if (asksAccess) rows.push(field("credentials", "钥匙引用名", "如 MY_API_KEY；不填就是不需要钥匙（多个用逗号分隔）"));
-					if (asksAccess) rows.push(h("div", { key: "keyhint", style: S.hint },
-						"这里只登记**引用名**；值在账号详情里贴，永不经过模型、不进会话记录。"
+					if (asksAccess) rows.push(hintRow("keyhint", "这里只登记**引用名**；值在账号详情里贴，永不经过模型、不进会话记录。"
 						+ (current.form === "objstore" ? "对象存储要按顺序填两个：access key id、secret access key。" : "")));
 
 					const advancedRows = [];
@@ -1528,7 +1530,9 @@ window.__ModuleLoader__.load({
 								onClick: () => { setRc(null); setForm(null); setNotice(null); gotoOverview(); },
 							}, "取消")),
 						typeRow,
-						h("div", { key: "typehint", style: S.hint }, (CLASS_FORMS[createType] || CLASS_FORMS.remote).hint),
+						h("div", { key: "typehint", style: S.fieldRow },
+							h("span", { key: "sp", style: S.rowLabel }, ""),
+							h("div", { style: S.fieldControl }, h("div", { style: S.hint }, (CLASS_FORMS[createType] || CLASS_FORMS.remote).hint))),
 						createType === "account"
 							? (form ? renderForm("账号（只登记元数据；值在账号详情里录）") : null)
 							: h("div", { key: "resbody" }, ...renderResourceFormBody()),

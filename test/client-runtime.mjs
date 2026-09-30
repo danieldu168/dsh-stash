@@ -1077,6 +1077,14 @@ check('标签右对齐且在固定列里', (() => {
   return st.textAlign === 'right' && String(st.width) === '104px' && st.whiteSpace === 'nowrap'
 })())
 check('钥匙只登记引用名，并说明值不走这里', resText.includes('只登记') && resText.includes('值在账号详情里贴'))
+check('方框下的注释与方框同一起点（走 hintRow，不是挂在行外）', (() => {
+  const rowsOutside = src.match(/rows\.push\(h\("div", \{ key: "[a-z]+", style: S\.(hint|warn) \}/g) || []
+  return rowsOutside.length === 0 && /const hintRow = \(key, text, style\)/.test(src)
+})(), '行外注释 ' + ((src.match(/rows\.push\(h\("div", \{ key: "[a-z]+", style: S\.(hint|warn) \}/g) || []).length))
+check('注释行的左边缘 = 方框左边缘（标签列占位为空）', (() => {
+  const hint = nodesOf(tree).find((n) => n.type === 'div' && String(textOfTree(n)).includes('带 ◇ 的两个是硬门禁'))
+  return Boolean(hint)
+})())
 
 // 对象存储：协议可选（WebDAV 也能从面板建）
 pickForm('objstore')
