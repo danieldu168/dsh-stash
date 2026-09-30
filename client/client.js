@@ -371,7 +371,7 @@ window.__ModuleLoader__.load({
 			fieldControl: { flex: "1 1 auto", minWidth: 0 },
 			fullInput: { width: "100%", fontSize: "13px", color: C.text },
 			fullSelect: { width: "100%", fontSize: "13px", color: C.text },
-			rowLabel: { fontSize: "13px", color: C.text2, flex: "0 0 88px", width: "88px", paddingTop: "7px", whiteSpace: "nowrap" },
+			rowLabel: { fontSize: "13px", color: C.text2, flex: "0 0 104px", width: "104px", paddingTop: "7px", whiteSpace: "nowrap" },
 			// 高级：一条有边框的控件行，而不是一句会被当成正文的长句。
 			advBox: { marginTop: "16px", border: "1px solid " + C.border, borderRadius: "9px", overflow: "hidden" },
 			advHead: {
@@ -1372,7 +1372,7 @@ window.__ModuleLoader__.load({
 							rows.push(field("limit", "条数上限", "如 50"));
 						}
 					} else if (current.form === "files") {
-						rows.push(field("paths", "路径（每行一条）", "D:/corpus/a.csv", { area: true }));
+						rows.push(field("paths", "路径", "每行一条；如 D:/corpus/a.csv", { area: true }));
 						rows.push(h("div", { key: "corpus", style: S.warn },
 							"面板不会替你搬文件：先把文件放进 corpus 目录，再回来填路径。"));
 					} else if (current.form === "mcp") {
