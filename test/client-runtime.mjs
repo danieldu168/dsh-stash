@@ -537,7 +537,9 @@ text = textOfTree(tree)
 check('类层面包屑从「stash」起，并标出「远端接口」', buttons(tree, 'stash').length === 1 && text.includes('远端接口'))
 const classTree = libTreeAt(tree)
 const classText = classTree ? textOfTree(classTree) : ''
-check('类层渲染出来了（账号 / 资源两块）', Boolean(classTree) && classText.includes('账号') && classText.includes('资源'), classText.slice(0, 80))
+// 第二个块的标题就是该类名（远端接口），不再叫「资源」：
+// 首页那个「资源」是三类合计，两处同名会让人问「资源到底指什么」。
+check('类层渲染出来了（账号 + 该类两块）', Boolean(classTree) && classText.includes('账号') && classText.includes('远端接口'), classText.slice(0, 80))
 check('类层标题是「远端接口」，带「← 概览」', classText.includes('远端接口') && buttons(classTree, '← 概览').length === 1)
 check('账号块排在资源前面（钥匙跟着资源走）', classText.indexOf('某赔率服务') < classText.indexOf('贸易统计（公开接口）'))
 check('类层不放 52px 大数字（数字归到两个块的标题行，避免重复）', !nodesOf(classTree).some((n) => n.props?.style?.fontSize === '52px'), classText.slice(0, 80))
@@ -874,7 +876,8 @@ check('面包屑从「stash」起并标出「远端接口」', buttons(tree, 'st
 
 let libTree = libTreeOf(tree)
 const libText = textOfTree(libTree)
-check('资源块的数字与账号块同构（名称 · 自身数字 · 动作）', libText.includes('资源') && libText.includes('3 条 · 2 就绪 · 1 有阻塞'), libText.slice(0, 200))
+// 第二个块的标题是**该类名**（首页的「资源」是三类合计，不能两处同名）。
+check('该类块的数字与账号块同构（名称 · 自身数字 · 动作）', libText.includes('远端接口') && libText.includes('3 条 · 2 就绪 · 1 有阻塞'), libText.slice(0, 200))
 check('账号块在前，资源块在后（账号卡排在资源卡之前）', libText.indexOf('某赔率服务') < libText.indexOf('贸易统计（公开接口）'))
 check('账号块给自己的数字（个数 · 钥匙数 · 未配置数）', libText.includes('1 个 · 1 把钥匙') && libText.includes('1 把未配置'), libText.slice(0, 200))
 const numberHits = (libText.match(/3 条/g) ?? []).length

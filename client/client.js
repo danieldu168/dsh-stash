@@ -1591,11 +1591,7 @@ window.__ModuleLoader__.load({
 
 					children.push(h("div", { key: "res", style: S.sec },
 						h("div", { key: "head", className: "dshs-sec" },
-							h("span", { className: "dshs-secname" }, "资源"),
-							h("button", {
-								key: "all", className: "dshs-ghost", style: { ...S.spacer, ...S.btn(false) },
-								onClick: () => openBucket("remote", "all"),
-							}, "全部资源 →")),
+							h("span", { className: "dshs-secname" }, "资源（三类合计）")),
 						h("div", { key: "hero", style: S.heroRow },
 							h("span", { style: S.heroNum }, String(ls.total || 0)),
 							h("span", { style: S.heroLabel }, "资源总数"),
@@ -2635,8 +2631,10 @@ window.__ModuleLoader__.load({
 						"这一类里还没有资源。回首页点「＋ 新建条目 → 资源」登记，或直接写 " + (state.sourcesFile || "sources.mjs") + "。"));
 				} else {
 					body.push(h("div", { key: "res-head", style: S.groupHead },
-						h("span", { style: S.groupName }, "资源"),
-						// 资源块的数字**就写在这里、只出现一次**——与账号块同构：
+						// 标题用**该类名**：首页那个"资源"是三类合计，这一块是当前这一类自己；
+						// 两处同名会让人问"资源到底指什么"（上一版就是那样）。
+						h("span", { style: S.groupName }, bucketLabel || "资源"),
+						// 数字**就写在这里、只出现一次**——与账号块同构：
 						// `名称  自身的数字  动作`。筛选与搜索生效时改报命中数（那是新信息）。
 						h("span", { style: S.spacer }, (needle || filter !== "all")
 							? "命中 " + visible.length + " / " + libs.length
