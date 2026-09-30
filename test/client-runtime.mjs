@@ -161,10 +161,10 @@ const libTreeAt = (node) => { const el = libNode(node); return el ? el.type(el.p
 // 整行就是那一颗按钮（不再单独放「详情」）：找 class 为 dshs-rowbtn 的行，用行尾的 ▴/▾ 判断是否已展开。
 const cardRow = (card) => nodesOf(card).find((n) => n.props?.className === 'dshs-rowbtn') ?? null
 const cardOpen = (card) => nodesOf(card).some((n) => n.type === 'span' && (n.children ?? [])[0] === '▴')
-/** 新建页的「新建什么」下拉：resource / account（对象轴；三类由形态派生）。 */
+/** 新建页的「新建什么」下拉：就是首页那三类（remote / local-service / local-files）。 */
 const pickCreateType = (value) => {
   const sel = nodesOf(tree).find((n) => n.type === 'select'
-    && (n.children ?? []).some((c) => c && c.props && c.props.value === 'account'))
+    && (n.children ?? []).some((c) => c && c.props && c.props.value === 'local-files'))
   if (!sel) throw new Error('找不到「新建什么」下拉')
   sel.props.onChange({ target: { value } })
   tree = render()
@@ -996,7 +996,7 @@ check('本地语料卡展开后列出路径', corpusDetailText.includes('corpus/
 tree = click(buttons(filesTree, '← 概览')[0])
 check('「← 概览」回到首页，类层不再渲染', !libNode(tree) && textOfTree(tree).includes('资源总数'))
 
-// ── 新建页：一个页面 + 下拉（新建什么 → 形态）→ 直接提 POST ─────────────
+// ── 新建页：一个页面 + 下拉（新建什么=三类 → 形态 → 字段）→ 直接提 POST ────
 const setByPlaceholder = (needle, value) => {
   const node = nodesOf(tree).find((n) => (n.type === 'input' || n.type === 'textarea')
     && String(n.props?.placeholder ?? '').includes(needle))
@@ -1004,7 +1004,7 @@ const setByPlaceholder = (needle, value) => {
   node.props.onChange({ target: { value } })
   tree = render()
 }
-/** 表单里的「形态」下拉：六项形态，与技术名一起列。 */
+/** 表单里的「形态」下拉（按类收窄后的那一份）。 */
 const pickForm = (value) => {
   const sel = nodesOf(tree).find((n) => n.type === 'select'
     && (n.children ?? []).some((c) => c && c.props && c.props.value === value))
@@ -1012,31 +1012,45 @@ const pickForm = (value) => {
   sel.props.onChange({ target: { value } })
   tree = render()
 }
+const FORM_IDS = ['http', 'builtin', 'db', 'objstore', 'files', 'mcp']
+const formOptions = () => {
+  const sels = nodesOf(tree).filter((n) => n.type === 'select')
+  const sel = sels.find((s) => {
+    const vals = (s.children ?? []).filter((c) => c && c.props && c.props.value !== undefined).map((c) => c.props.value)
+    return vals.length > 0 && vals.every((v) => FORM_IDS.includes(v))
+  })
+  if (!sel) return []
+  return (sel.children ?? []).filter((c) => c && c.props && c.props.value !== undefined).map((c) => c.props.value)
+}
 check('首页有「＋ 新建条目」', buttons(tree, '＋ 新建条目').length === 1)
 tree = click(buttons(tree, '＋ 新建条目')[0])
 const createText = textOfTree(tree)
 check('点开就是**一个新建页**（没有中间菜单）', createText.includes('新建条目') && createText.includes('新建什么'))
-check('「新建什么」是**对象**下拉：资源 / 账号（三类不在这里并列）', (() => {
+check('「新建什么」就是首页那三类', (() => {
   const sel = nodesOf(tree).find((n) => n.type === 'select'
-    && (n.children ?? []).some((c) => c && c.props && c.props.value === 'account'))
+    && (n.children ?? []).some((c) => c && c.props && c.props.value === 'local-files'))
   if (!sel) return false
   const opts = (sel.children ?? []).filter((c) => c && c.props && c.props.value !== undefined).map((c) => c.props.value)
-  return opts.join(',') === 'resource,account'
+  return opts.join(',') === 'remote,local-service,local-files'
 })())
-check('默认落在「资源」，形态下拉是那六项且**没有类范围**', (() => {
-  const formSel = nodesOf(tree).find((n) => n.type === 'select'
-    && (n.children ?? []).some((c) => c && c.props && c.props.value === 'objstore'))
-  if (!formSel) return false
-  const opts = (formSel.children ?? []).filter((c) => c && c.props && c.props.value !== undefined).map((c) => c.props.value)
-  return opts.join(',') === 'http,builtin,db,objstore,files,mcp'
-})())
-check('形态只列一次 MCP（不再在两个类里重复出现）', (() => {
-  const formSel = nodesOf(tree).find((n) => n.type === 'select'
-    && (n.children ?? []).some((c) => c && c.props && c.props.value === 'mcp'))
-  if (!formSel) return false
-  const texts = (formSel.children ?? []).filter((c) => c && c.props && c.props.value !== undefined).map((c) => String(textOfTree(c)))
-  return texts.filter((x) => x.includes('MCP')).length === 1
-})())
+check('页面上不再有重复的「类别」行', !createText.includes('类别就是首页那三类') && (createText.match(/类别/g) || []).length === 0)
+check('默认落在「远端接口」，形态只列这一类能有的（4 项）',
+  formOptions().join(',') === 'http,builtin,objstore,mcp', formOptions().join(','))
+check('选类之后形态自动收窄：本机文件 → 本地语料 / 本地数据库', (() => {
+  pickCreateType('local-files')
+  return formOptions().join(',') === 'files,db'
+})(), formOptions().join(','))
+check('本机服务里 http 自动改称「本机端口」', (() => {
+  pickCreateType('local-service')
+  const sel = nodesOf(tree).find((n) => n.type === 'select'
+    && (n.children ?? []).some((c) => c && c.props && c.props.value === 'http'))
+  const first = (sel.children ?? []).find((c) => c && c.props && c.props.value === 'http')
+  return String(textOfTree(first)).includes('本机端口')
+})(), formOptions().join(','))
+check('账号不在类下拉里，而是页面上的次要入口', buttons(tree, '新建账号 →').length === 1)
+
+// 回到「远端接口」的 http，走完整条提交路径前先看表单要素
+pickCreateType('remote')
 let resText = textOfTree(tree)
 check('形态那一项旁边给出能力边界', resText.includes('最常见的一种：一个 http(s) 地址'), resText.slice(0, 200))
 check('内置处理器不再带本机专有名字（没有贸易 / 政策这类词）',
@@ -1047,15 +1061,13 @@ check('边界是一个下拉，两个硬门禁带 ◇', (() => {
   const labels = (sel.children ?? []).map((c) => String(textOfTree(c)))
   return labels.length === 4 && labels.some((x) => x.includes('◇')) && labels.some((x) => x.includes('公开免登录'))
 })())
-check('归入是一个下拉，默认「自动判定」并写明会归到哪一类', (() => {
-  const sel = nodesOf(tree).find((n) => n.type === 'select' && (n.children ?? []).some((c) => c && c.props && c.props.value === 'local-files'))
-  if (!sel) return false
-  const auto = (sel.children ?? []).find((c) => c && c.props && c.props.value === '')
-  return String(sel.props.value) === '' && String(textOfTree(auto)).includes('自动判定')
+check('行标签字号不小于框里的值（13px）', (() => {
+  const label = nodesOf(tree).find((n) => n.type === 'span' && (n.children ?? [])[0] === '新建什么')
+  return label && String(label.props.style?.fontSize) === '13px'
 })())
 check('钥匙只登记引用名，并说明值不走这里', resText.includes('只登记') && resText.includes('值在账号详情里贴'))
 
-// 换形态：字段跟着换，形态与归类提示也跟着换
+// 对象存储：协议可选（WebDAV 也能从面板建）
 pickForm('objstore')
 resText = textOfTree(tree)
 check('换成「对象存储 / 文件传输」后取数字段跟着换', resText.includes('端点') && resText.includes('bucket'))
@@ -1063,14 +1075,9 @@ check('对象存储能选协议（WebDAV 也能从面板建）', (() => {
   const sel = nodesOf(tree).find((n) => n.type === 'select' && (n.children ?? []).some((c) => c && c.props && c.props.value === 'webdav'))
   return Boolean(sel) && String(sel.props.value) === 's3'
 })())
-check('高级里有查询参数 / 取哪一段 / 覆盖范围 / 注意事项', (() => {
-  const sel = nodesOf(tree).find((n) => n.type === 'select' && (n.children ?? []).some((c) => c && c.props && c.props.value === 's3'))
-  const base = nodesOf(tree).find((n) => n.type === 'select' && (n.children ?? []).some((c) => c && c.props && c.props.value === 'webdav'))
-  return Boolean(base)
-})())
-check('归入提示跟着形态走（对象存储 → 远端接口）', textOfTree(tree).includes('会归入「远端接口」'), textOfTree(tree).slice(0, 200))
 
-// 用「本地数据库」走完整条提交路径
+// 从「本机文件」那一类进来：形态收窄 + 归入由类决定
+pickCreateType('local-files')
 pickForm('db')
 resText = textOfTree(tree)
 check('换成「本地数据库」后取数字段跟着换', resText.includes('SQLite 路径') && resText.includes('只读 SQL'))
@@ -1100,7 +1107,7 @@ check('创建成功后回到类层并给出写入提示', textOfTree(libTreeOf(t
 // 这几条盯的是"表单组装出来的形状，注册表能收"——形状错了要等真取数才发现。
 tree = click(buttons(tree, 'stash')[0])
 tree = click(buttons(tree, '＋ 新建条目')[0])
-pickCreateType('resource')
+pickCreateType('remote')
 pickForm('http')
 tree = click(advancedBtn()[0])
 setByPlaceholder('小写字母', 'my_api')
@@ -1125,7 +1132,7 @@ check(
 // 对象存储：两个引用名按顺序进 request（accessKeyIdRef / secretAccessKeyRef），不是只进顶层 credentials。
 tree = click(buttons(tree, 'stash')[0])
 tree = click(buttons(tree, '＋ 新建条目')[0])
-pickCreateType('resource')
+pickCreateType('remote')
 pickForm('objstore')
 setByPlaceholder('小写字母', 'my_bucket')
 setByPlaceholder('s3.example.com', 'https://s3.example.com')
@@ -1148,7 +1155,7 @@ check(
 // ── 表单错误态：host 说不行 → 顶部汇总 + 字段就地标红 ──────────────────
 tree = click(buttons(tree, 'stash')[0])
 tree = click(buttons(tree, '＋ 新建条目')[0])
-pickCreateType('resource')
+pickCreateType('remote')
 pickForm('http')
 resText = textOfTree(tree)
 check('HTTP 表单有「高级」折叠，默认收起（请求头输入框不渲染）', resText.includes('▸ 高级') && !nodesOf(tree).some((n) => n.type === 'textarea' && String(n.props?.placeholder ?? '').includes('每行一条')))

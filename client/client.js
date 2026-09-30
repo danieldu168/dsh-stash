@@ -91,6 +91,27 @@ window.__ModuleLoader__.load({
 	};
 	const resourceFormMeta = (form) => RESOURCE_FORMS.find((item) => item.form === form) ?? RESOURCE_FORMS[0];
 
+	/**
+	 * 首页那三类 = 资源的一级分类，也是新建页的第一行。选完类，形态只列这一类能有的。
+	 * 三层关系是**类 → 形态 → 字段**，不再是"对象/类别"两个轴叠在一起。
+	 */
+	const CLASS_FORMS = {
+		remote: { label: "远端接口", hint: "网络上的东西：接口、内置处理器、对象存储、MCP(http)", forms: ["http", "builtin", "objstore", "mcp"] },
+		"local-service": { label: "本机服务", hint: "本机在跑的服务（回环地址）或 MCP(stdio)", forms: ["http", "mcp"] },
+		"local-files": { label: "本机文件", hint: "本地语料（文件 / 目录）或本地数据库（SQLite）", forms: ["files", "db"] },
+	};
+	/** 同一个形态在不同类里的说法不同：http 在「本机服务」里就是本机端口。 */
+	const formLabelIn = (form, classId) => {
+		const meta = resourceFormMeta(form);
+		if (form === "http" && classId === "local-service") return { label: "本机端口", tech: "http（回环地址）", hint: "本机在跑的服务，如 http://127.0.0.1:6900/api" };
+		return meta;
+	};
+	const formsOfClass = (classId) => {
+		const spec = CLASS_FORMS[classId];
+		const list = spec ? spec.forms : RESOURCE_FORMS.map((item) => item.form);
+		return list.map((form) => ({ form, ...formLabelIn(form, classId) }));
+	};
+
 
 	/** 空表单。字段刻意只留必填 + 高级，别一上来摊十几个输入框。 */
 	const emptyResource = (form) => ({
@@ -344,6 +365,7 @@ window.__ModuleLoader__.load({
 			stats: { paddingBottom: "14px", marginBottom: "14px", borderBottom: "1px solid " + C.border },
 			// 段落容器：整页几段用同一个节奏，段间留白而不是加线。
 			sec: { marginTop: "24px" },
+			rowLabel: { fontSize: "13px", color: C.text2, flex: "0 0 auto", minWidth: "84px" },
 			heroRow: { display: "flex", alignItems: "baseline", gap: "12px", flexWrap: "wrap", margin: "14px 0 0" },
 			heroNum: { fontSize: "52px", fontWeight: 600, lineHeight: .95, fontVariantNumeric: "tabular-nums" },
 			heroLabel: { fontSize: "12px", color: C.text2 },
@@ -1125,8 +1147,8 @@ window.__ModuleLoader__.load({
 					
 					setNotice(null);
 					setForm(null);
-					setRc(emptyResource("http"));
-					setCreateType("resource");
+					setRc({ ...emptyResource("http"), classScope: "remote", bucketOverride: "remote" });
+					setCreateType("remote");
 					setView("create");
 				};
 
@@ -1135,10 +1157,15 @@ window.__ModuleLoader__.load({
 					if (next === "account") {
 						setRc(null);
 						setForm((prev) => (prev && prev.mode === "new" ? prev : { mode: "new", data: emptyForm() }));
-					} else {
-						setForm(null);
-						setRc((prev) => (prev && prev.mode === "new" ? prev : emptyResource("http")));
+						setCreateType("account");
+						return;
 					}
+					setForm(null);
+					const first = formsOfClass(next)[0].form;
+					setRc({
+						...emptyResource(first), classScope: next, bucketOverride: next,
+						advanced: first === "files" || first === "mcp" || first === "db",
+					});
 					setCreateType(next);
 				};
 
@@ -1277,7 +1304,7 @@ window.__ModuleLoader__.load({
 					const errorOf = (key) => (current.errors || []).find((item) => item.field === key);
 					const cap = (key) => (errorOf(key) ? { ...S.input, borderColor: C.warn } : S.input);
 					const field = (key, label, placeholder, opts = {}) => h("div", { key, style: S.form },
-						h("span", { style: { ...S.meta, marginTop: 0, minWidth: "84px" } }, label),
+						h("span", { style: S.rowLabel }, label),
 						opts.area
 							? h("textarea", {
 								style: { ...cap(key), ...S.area },
@@ -1312,7 +1339,7 @@ window.__ModuleLoader__.load({
 						rows.push(field("limit", "行数上限", "如 200"));
 					} else if (current.form === "objstore") {
 						rows.push(h("div", { key: "protocol", style: S.form },
-							h("span", { style: { ...S.meta, marginTop: 0, minWidth: "84px" } }, "协议"),
+							h("span", { style: S.rowLabel }, "协议"),
 							h("select", {
 								className: "dshs-select",
 								style: { flex: "0 1 240px", width: "auto" },
@@ -1335,7 +1362,7 @@ window.__ModuleLoader__.load({
 					} else if (current.form === "mcp") {
 						rows.push(field("server", "服务名", "DSH profile 里那条 MCP 行的 serverName，如 my-service"));
 						rows.push(h("div", { key: "tr", style: S.form },
-							h("span", { style: { ...S.meta, marginTop: 0, minWidth: "84px" } }, "承载"),
+							h("span", { style: S.rowLabel }, "承载"),
 							...[["stdio", "stdio（子进程）"], ["streamable-http", "streamable-http"], ["sse", "sse"]].map(([id, label]) => h("button", {
 								key: id, className: current.transport === id ? "dshs-primary" : "dshs-ghost", style: S.btn(false),
 								onClick: () => patch("transport", id),
@@ -1346,7 +1373,7 @@ window.__ModuleLoader__.load({
 					// 使用边界：**一个下拉**（四个值里两个是硬门禁）。四个 chip 会折成两行，
 					// 加上后面那段说明，一屏里全是字——下拉把选择收起来，说明压成一行。
 					rows.push(h("div", { key: "access", style: S.form },
-						h("span", { style: { ...S.meta, marginTop: 0, minWidth: "84px" } }, "使用边界"),
+						h("span", { style: S.rowLabel }, "使用边界"),
 						h("select", {
 							className: "dshs-select",
 							style: { flex: "0 1 300px", width: "auto" },
@@ -1381,24 +1408,10 @@ window.__ModuleLoader__.load({
 					}
 
 					return [
-						// 类别：就是首页那三类（资源的归属）。默认按形态自动判定，也可以直接点选一类。
-						h("div", { key: "bucket", style: S.form },
-							h("span", { style: { ...S.meta, marginTop: 0, minWidth: "84px" } }, "类别"),
-							h("select", {
-								className: "dshs-select",
-								style: { flex: "0 1 240px", width: "auto" },
-								value: current.bucketOverride || "",
-								onChange: (event) => patch("bucketOverride", event && event.target ? event.target.value : ""),
-							},
-								...BUCKET_CHOICES.map((choice) => h("option", { key: choice.id || "auto", value: choice.id },
-									choice.id ? choice.label : "自动判定（按形态会归入「" + bucketLabelOf(current.form) + "」）")))),
-						h("div", { key: "buckethint", style: S.hint },
-							"三类就是首页那三类。默认不用管；只有自动判定会错时才选——比如本地反向代理把远端服务伪装成 127.0.0.1。"),
-
 						// 形态：新建时是一个**下拉**（只列这一类能有的），编辑时只读——
 						// 换形态等于换一条库，该删了重建。选中后下面那行小字说明它的能力边界。
 						h("div", { key: "formtype", style: S.form },
-							h("span", { style: { ...S.meta, marginTop: 0, minWidth: "84px" } }, "形态"),
+							h("span", { style: S.rowLabel }, "形态"),
 							current.mode === "edit"
 								? h("span", { style: S.tag }, meta.label + " · " + meta.tech)
 								: h("select", {
@@ -1411,12 +1424,12 @@ window.__ModuleLoader__.load({
 										setRc((prev) => (prev ? {
 											...emptyResource(next),
 											mode: prev.mode, id: prev.id,
-											bucketOverride: prev.bucketOverride,
+											classScope: prev.classScope, bucketOverride: prev.bucketOverride,
 											advanced: next === "files" || next === "mcp" || next === "db" ? true : prev.advanced,
 										} : prev));
 									},
 								},
-									...RESOURCE_FORMS.map((item) => h("option", { key: item.form, value: item.form },
+									...formsOfClass(current.classScope).map((item) => h("option", { key: item.form, value: item.form },
 										item.label + "（" + item.tech + "）"))),
 							h("span", { style: { ...S.meta, fontSize: "11px" } }, meta.hint)),
 
@@ -1467,14 +1480,14 @@ window.__ModuleLoader__.load({
 
 				if (view === "create") {
 					const typeRow = h("div", { key: "type", style: S.form },
-						h("span", { style: { ...S.meta, marginTop: 0, minWidth: "84px" } }, "新建什么"),
+						h("span", { style: S.rowLabel }, "新建什么"),
 						h("select", {
 							className: "dshs-select",
-							style: { flex: "0 1 330px", width: "auto" },
+							style: { flex: "0 1 280px", width: "auto" },
 							value: createType,
 							onChange: (event) => switchCreateType(event && event.target ? event.target.value : "remote"),
 						},
-							...CREATE_OBJECTS.map((item) => h("option", { key: item.id, value: item.id }, item.label))));
+							...Object.keys(CLASS_FORMS).map((id) => h("option", { key: id, value: id }, CLASS_FORMS[id].label))));
 					return h("div", { className: "dshs-root", style: S.wrap },
 						renderCrumbs("新建条目"),
 						h("div", { style: S.titleRow },
@@ -1484,10 +1497,17 @@ window.__ModuleLoader__.load({
 								onClick: () => { setRc(null); setForm(null); setNotice(null); gotoOverview(); },
 							}, "取消")),
 						typeRow,
-						h("div", { key: "typehint", style: S.hint }, (CREATE_OBJECTS.find((item) => item.id === createType) || CREATE_OBJECTS[0]).hint),
+						h("div", { key: "typehint", style: S.hint }, (CLASS_FORMS[createType] || CLASS_FORMS.remote).hint),
 						createType === "account"
 							? (form ? renderForm("账号（只登记元数据；值在账号详情里录）") : null)
 							: h("div", { key: "resbody" }, ...renderResourceFormBody()),
+						h("div", { key: "acctlink", style: { ...S.hint, marginTop: "12px" } },
+							"要新建的不是资源，而是账号（一个服务 / 网站，挂若干把钥匙）？",
+							h("button", {
+								key: "to-account", className: "dshs-ghost",
+								style: { ...S.btn(false), marginLeft: "6px" },
+								onClick: () => switchCreateType("account"),
+							}, "新建账号 →")),
 						renderRefresh());
 				}
 
