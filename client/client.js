@@ -365,7 +365,21 @@ window.__ModuleLoader__.load({
 			stats: { paddingBottom: "14px", marginBottom: "14px", borderBottom: "1px solid " + C.border },
 			// 段落容器：整页几段用同一个节奏，段间留白而不是加线。
 			sec: { marginTop: "24px" },
-			rowLabel: { fontSize: "13px", color: C.text2, flex: "0 0 auto", minWidth: "84px" },
+			// 表单：标签列 + 控件列。控件一律占满控件列，「右边缘对齐」是这张表单不显乱的关键。
+			fieldRow: { display: "flex", alignItems: "flex-start", gap: "12px", marginTop: "12px" },
+			fieldControl: { flex: "1 1 auto", minWidth: 0 },
+			fullInput: { width: "100%" },
+			fullSelect: { width: "100%" },
+			rowLabel: { fontSize: "13px", color: C.text2, flex: "0 0 auto", minWidth: "84px", paddingTop: "7px" },
+			// 高级：一条有边框的控件行，而不是一句会被当成正文的长句。
+			advBox: { marginTop: "16px", border: "1px solid " + C.border, borderRadius: "9px", overflow: "hidden" },
+			advHead: {
+				display: "flex", alignItems: "baseline", gap: "8px", width: "100%", textAlign: "left",
+				padding: "9px 12px", borderRadius: 0, border: 0, background: C.layer1,
+			},
+			advName: { fontSize: "13px", fontWeight: 600, color: C.text },
+			advNote: { fontSize: "11px", color: C.text2 },
+			advBody: { padding: "2px 12px 12px" },
 			heroRow: { display: "flex", alignItems: "baseline", gap: "12px", flexWrap: "wrap", margin: "14px 0 0" },
 			heroNum: { fontSize: "52px", fontWeight: 600, lineHeight: .95, fontVariantNumeric: "tabular-nums" },
 			heroLabel: { fontSize: "12px", color: C.text2 },
@@ -1303,19 +1317,20 @@ window.__ModuleLoader__.load({
 					const patch = (key, value) => setRc((prev) => (prev ? { ...prev, [key]: value } : prev));
 					const errorOf = (key) => (current.errors || []).find((item) => item.field === key);
 					const cap = (key) => (errorOf(key) ? { ...S.input, borderColor: C.warn } : S.input);
-					const field = (key, label, placeholder, opts = {}) => h("div", { key, style: S.form },
+					const field = (key, label, placeholder, opts = {}) => h("div", { key, style: S.fieldRow },
 						h("span", { style: S.rowLabel }, label),
-						opts.area
-							? h("textarea", {
-								style: { ...cap(key), ...S.area },
-								value: current[key], placeholder,
-								onChange: (event) => patch(key, event.target.value),
-							})
-							: h("input", {
-								style: cap(key), value: current[key], placeholder,
-								onChange: (event) => patch(key, event.target.value),
-							}),
-						errorOf(key) ? h("div", { style: { ...S.warn, flexBasis: "100%" } }, errorOf(key).message) : null);
+						h("div", { style: S.fieldControl },
+							opts.area
+								? h("textarea", {
+									style: { ...cap(key), ...S.area, width: "100%" },
+									value: current[key], placeholder,
+									onChange: (event) => patch(key, event.target.value),
+								})
+								: h("input", {
+									style: { ...cap(key), ...S.fullInput }, value: current[key], placeholder,
+									onChange: (event) => patch(key, event.target.value),
+								}),
+							errorOf(key) ? h("div", { style: S.warn }, errorOf(key).message) : null));
 
 					const rows = [];
 					rows.push(field("id", "id", "小写字母/数字/-/_，如 my_service"));
@@ -1338,11 +1353,11 @@ window.__ModuleLoader__.load({
 						rows.push(field("required", "必填参数", "逗号分隔，如 dept"));
 						rows.push(field("limit", "行数上限", "如 200"));
 					} else if (current.form === "objstore") {
-						rows.push(h("div", { key: "protocol", style: S.form },
+						rows.push(h("div", { key: "protocol", style: S.fieldRow },
 							h("span", { style: S.rowLabel }, "协议"),
 							h("select", {
 								className: "dshs-select",
-								style: { flex: "0 1 240px", width: "auto" },
+								style: S.fullSelect,
 								value: current.protocol,
 								onChange: (event) => patch("protocol", event && event.target ? event.target.value : "s3"),
 							},
@@ -1361,7 +1376,7 @@ window.__ModuleLoader__.load({
 							"面板不会替你搬文件：先把文件放进 corpus 目录，再回来填路径。"));
 					} else if (current.form === "mcp") {
 						rows.push(field("server", "服务名", "DSH profile 里那条 MCP 行的 serverName，如 my-service"));
-						rows.push(h("div", { key: "tr", style: S.form },
+						rows.push(h("div", { key: "tr", style: S.fieldRow },
 							h("span", { style: S.rowLabel }, "承载"),
 							...[["stdio", "stdio（子进程）"], ["streamable-http", "streamable-http"], ["sse", "sse"]].map(([id, label]) => h("button", {
 								key: id, className: current.transport === id ? "dshs-primary" : "dshs-ghost", style: S.btn(false),
@@ -1372,11 +1387,11 @@ window.__ModuleLoader__.load({
 
 					// 使用边界：**一个下拉**（四个值里两个是硬门禁）。四个 chip 会折成两行，
 					// 加上后面那段说明，一屏里全是字——下拉把选择收起来，说明压成一行。
-					rows.push(h("div", { key: "access", style: S.form },
+					rows.push(h("div", { key: "access", style: S.fieldRow },
 						h("span", { style: S.rowLabel }, "使用边界"),
 						h("select", {
 							className: "dshs-select",
-							style: { flex: "0 1 300px", width: "auto" },
+							style: S.fullSelect,
 							value: current.access,
 							onChange: (event) => patch("access", event && event.target ? event.target.value : current.access),
 						},
@@ -1392,13 +1407,6 @@ window.__ModuleLoader__.load({
 						"这里只登记**引用名**；值在账号详情里贴，永不经过模型、不进会话记录。"
 						+ (current.form === "objstore" ? "对象存储要按顺序填两个：access key id、secret access key。" : "")));
 
-					const advancedToggle = ["http", "objstore"].includes(current.form)
-						? h("button", {
-							key: "adv", className: "dshs-ghost", style: S.btn(false),
-							onClick: () => patch("advanced", !current.advanced),
-						}, (current.advanced ? "▾ " : "▸ ") + "高级（请求头 / 查询参数 / 取哪一段 / 请求体 / 必填参数 / 条数上限 / 覆盖范围 / 摘要 / 禁止边界 / 注意事项）")
-						: null;
-
 					const advancedRows = [];
 					if (current.advanced) {
 						advancedRows.push(field("summary", "摘要", "一句话说明这是什么"));
@@ -1407,16 +1415,29 @@ window.__ModuleLoader__.load({
 						advancedRows.push(field("notesText", "注意事项", "每行一条；取数前该知道的事", { area: true }));
 					}
 
+					const advancedToggle = ["http", "objstore"].includes(current.form)
+						? h("div", { key: "advbox", style: S.advBox },
+							h("button", {
+								key: "adv", className: "dshs-ghost", style: S.advHead,
+								onClick: () => patch("advanced", !current.advanced),
+							},
+								h("span", { key: "n", style: S.advName }, (current.advanced ? "▾ " : "▸ ") + "高级设置"),
+								h("span", { key: "note", style: { ...S.advNote, marginLeft: "auto" } },
+									current.advanced ? "收起" : "请求头 / 查询参数 / 取哪一段 / 请求体 / 条数上限 / 覆盖范围 / 注意事项")),
+							current.advanced ? h("div", { key: "advbody", style: S.advBody }, ...advancedRows) : null)
+						: null;
+
+
 					return [
 						// 形态：新建时是一个**下拉**（只列这一类能有的），编辑时只读——
 						// 换形态等于换一条库，该删了重建。选中后下面那行小字说明它的能力边界。
-						h("div", { key: "formtype", style: S.form },
+						h("div", { key: "formtype", style: S.fieldRow },
 							h("span", { style: S.rowLabel }, "形态"),
 							current.mode === "edit"
 								? h("span", { style: S.tag }, meta.label + " · " + meta.tech)
 								: h("select", {
 									className: "dshs-select",
-									style: { flex: "0 1 300px", width: "auto" },
+									style: S.fullSelect,
 									value: current.form,
 									onChange: (event) => {
 										const next = event && event.target ? event.target.value : current.form;
@@ -1441,7 +1462,6 @@ window.__ModuleLoader__.load({
 
 						h("div", { key: "rows", style: { marginTop: "12px" } }, ...rows),
 						advancedToggle,
-						advancedRows.length > 0 ? h("div", { key: "advrows", style: { marginTop: "8px" } }, ...advancedRows) : null,
 
 						h("div", { key: "foot", style: { marginTop: "16px", paddingTop: "12px", borderTop: "1px solid " + C.border } },
 							h("div", { key: "foothint", style: S.hint },
