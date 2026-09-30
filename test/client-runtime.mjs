@@ -998,7 +998,7 @@ const __probe = { hasInput: false, hasSelect: false, said: false, text: "" }
     __probe.hasSelect = Boolean(nodesOf(libTreeOf(after)).find((n) => n.type === 'select'
       && (n.children ?? []).some((c) => c && c.props && c.props.value === 'blocked')))
     __probe.text = String(textOfTree(libTreeOf(after))).slice(0, 200)
-    __probe.said = String(textOfTree(libTreeOf(after))).includes('没有命中当前筛选的数据源')
+    __probe.said = String(textOfTree(libTreeOf(after))).includes('没有命中当前筛选的资源')
     const q2 = nodesOf(libTreeOf(after)).find((n) => n.type === 'input' && String(n.props?.placeholder ?? '').includes('搜索账号'))
     if (q2) q2.props.onChange({ target: { value: '' } })
     tree = render()
@@ -1320,7 +1320,7 @@ tree = click(nodesOf(tree).find((n) => n.type === 'button' && textOfTree(n).incl
 let acctTree = libTreeOf(tree)
 const searchInputs = nodesOf(acctTree).filter((n) => n.type === 'input' && String(n.props?.placeholder ?? '').includes('搜索'))
 check('类层只有一个搜索框（不再账号、资源各一个）', searchInputs.length === 1, String(searchInputs.length))
-check('那一个搜索框写明同时管账号与数据源', String(searchInputs[0]?.props?.placeholder ?? '').includes('账号') && String(searchInputs[0]?.props?.placeholder ?? '').includes('数据源'))
+check('那一个搜索框写明同时管账号与资源', String(searchInputs[0]?.props?.placeholder ?? '').includes('账号') && String(searchInputs[0]?.props?.placeholder ?? '').includes('资源'))
 check('状态筛选紧贴资源块（在「资源」标题之后，不在账号块上面）',
   textOfTree(acctTree).indexOf('账号') < textOfTree(acctTree).lastIndexOf('全部'),
   textOfTree(acctTree).slice(0, 160))
@@ -1328,7 +1328,7 @@ libNode(tree).props.setQuery('绝不可能命中的名字')
 tree = render()
 acctTree = libTreeOf(tree)
 check('搜不到账号时给出提示', textOfTree(acctTree).includes('没有匹配的账号'), textOfTree(acctTree).slice(0, 200))
-check('搜不到数据源时给出提示', textOfTree(acctTree).includes('没有命中当前筛选的数据源'), textOfTree(acctTree).slice(0, 240))
+check('搜不到资源时给出提示', textOfTree(acctTree).includes('没有命中当前筛选的资源'), textOfTree(acctTree).slice(0, 240))
 libNode(tree).props.setQuery('某赔率服务')
 tree = render()
 acctTree = libTreeOf(tree)

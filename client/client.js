@@ -2619,12 +2619,12 @@ window.__ModuleLoader__.load({
 
 				if (libs.length === 0) {
 					body.push(h("div", { key: "empty", style: S.hint },
-						"这一类里还没有数据源。回首页点「＋ 新建条目」登记，或直接写 " + (state.sourcesFile || "sources.mjs") + "。"));
+						"这一类里还没有资源。回首页点「＋ 新建条目」登记，或直接写 " + (state.sourcesFile || "sources.mjs") + "。"));
 				} else {
 					body.push(h("div", { key: "res-head", style: S.groupHead },
 						// 标题用**该类名**：首页那个"资源"是三类合计，这一块是当前这一类自己；
 						// 两处同名会让人问"资源到底指什么"（上一版就是那样）。
-						h("span", { style: S.groupName }, "数据源"),
+						h("span", { style: S.groupName }, "资源"),
 						// 数字**就写在这里、只出现一次**——与账号块同构：
 						// `名称  自身的数字  动作`。筛选与搜索生效时改报命中数（那是新信息）。
 						h("span", { style: S.spacer }, (needle || filter !== "all")
@@ -2645,7 +2645,7 @@ window.__ModuleLoader__.load({
 					// 筛选到 0 条时表头必须留着，否则用户选完状态就"整个块不见了"，只能退出重进。
 					if (visible.length === 0) {
 						body.push(h("div", { key: "nomatch", style: S.hint },
-							"没有命中当前筛选的数据源。把上面的下拉改回「全部」，或清空搜索框。"));
+							"没有命中当前筛选的资源。把上面的下拉改回「全部」，或清空搜索框。"));
 					} else {
 						body.push(...visible.map(renderCard));
 					}
@@ -2663,7 +2663,7 @@ window.__ModuleLoader__.load({
 						h("input", {
 							key: "q",
 							style: { ...S.input, flex: "1 1 100%" },
-							placeholder: "搜索账号 / 数据源：账号名、网址、引用名、id、名称、摘要",
+							placeholder: "搜索账号 / 资源：账号名、网址、引用名、id、名称、摘要",
 							value: query,
 							onChange: (event) => setQuery(event && event.target ? event.target.value : ""),
 						})),
