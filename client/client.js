@@ -1,4 +1,4 @@
-/**
+﻿/**
  * dsh-stash —— 浏览器半边（手写 bundle，无构建步骤）。
  *
  * 文件精确以 loader 调用开头，与官方产物格式一致。
@@ -192,7 +192,7 @@ window.__ModuleLoader__.load({
 			if (String(rc.tools ?? "").trim()) entry.tools = String(rc.tools).trim();
 		}
 		if (refs.length > 0) entry.credentials = refs;
-		if (rc.access) entry.access = rc.access;
+		if (rc.form !== "files" && rc.form !== "db" && rc.access) entry.access = rc.access;
 		if (String(rc.bucketOverride ?? "")) entry.bucket = rc.bucketOverride;
 		if (String(rc.summary ?? "").trim()) entry.summary = String(rc.summary).trim();
 		if (String(rc.boundary ?? "").trim()) entry.boundary = String(rc.boundary).trim();
@@ -371,7 +371,7 @@ window.__ModuleLoader__.load({
 			fieldControl: { flex: "1 1 auto", minWidth: 0 },
 			fullInput: { width: "100%", fontSize: "13px", color: C.text },
 			fullSelect: { width: "100%", fontSize: "13px", color: C.text },
-			rowLabel: { fontSize: "13px", color: C.text2, flex: "0 0 auto", minWidth: "84px", paddingTop: "7px", whiteSpace: "nowrap" },
+			rowLabel: { fontSize: "13px", color: C.text2, flex: "0 0 88px", width: "88px", paddingTop: "7px", whiteSpace: "nowrap" },
 			// 高级：一条有边框的控件行，而不是一句会被当成正文的长句。
 			advBox: { marginTop: "16px", border: "1px solid " + C.border, borderRadius: "9px", overflow: "hidden" },
 			advHead: {
@@ -1388,7 +1388,10 @@ window.__ModuleLoader__.load({
 
 					// 使用边界：**一个下拉**（四个值里两个是硬门禁）。四个 chip 会折成两行，
 					// 加上后面那段说明，一屏里全是字——下拉把选择收起来，说明压成一行。
-					rows.push(h("div", { key: "access", style: S.fieldRow },
+					// 本地文件那一类（本地语料 / 本地数据库）不上网取数、也不需要凭据，
+					// 问「使用边界」「钥匙」是错问——这两组只在真会去网络上取数的形态里出现。
+					const asksAccess = current.form !== "files" && current.form !== "db";
+					if (asksAccess) rows.push(h("div", { key: "access", style: S.fieldRow },
 						h("span", { style: S.rowLabel }, "使用边界"),
 						h("select", {
 							className: "dshs-select",
@@ -1400,11 +1403,11 @@ window.__ModuleLoader__.load({
 							h("option", { key: "official-api", value: "official-api" }, "官方 API / 需授权"),
 							h("option", { key: "export-import", value: "export-import" }, "◇ 只能人工导出（硬门禁）"),
 							h("option", { key: "unsupported", value: "unsupported" }, "◇ 明确不做（硬门禁）"))));
-					rows.push(h("div", { key: "accounthint", style: S.hint },
+					if (asksAccess) rows.push(h("div", { key: "accounthint", style: S.hint },
 						"带 ◇ 的两个是硬门禁：选了它们，stash_fetch 直接拒绝取数、只留痕；另外两个是声明。"));
 
-					rows.push(field("credentials", "钥匙引用名", "如 MY_API_KEY；不填就是不需要钥匙（多个用逗号分隔）"));
-					rows.push(h("div", { key: "keyhint", style: S.hint },
+					if (asksAccess) rows.push(field("credentials", "钥匙引用名", "如 MY_API_KEY；不填就是不需要钥匙（多个用逗号分隔）"));
+					if (asksAccess) rows.push(h("div", { key: "keyhint", style: S.hint },
 						"这里只登记**引用名**；值在账号详情里贴，永不经过模型、不进会话记录。"
 						+ (current.form === "objstore" ? "对象存储要按顺序填两个：access key id、secret access key。" : "")));
 

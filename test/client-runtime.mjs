@@ -1081,6 +1081,29 @@ pickCreateType('local-files')
 pickForm('db')
 resText = textOfTree(tree)
 check('换成「本地数据库」后取数字段跟着换', resText.includes('SQLite 路径') && resText.includes('只读 SQL'))
+check('本地数据库不问「使用边界」与「钥匙」（它不上网取数、也不需要凭据）',
+  !resText.includes('使用边界') && !resText.includes('钥匙引用名'), resText.slice(0, 240))
+check('本地数据库也不带 access 提交（它没有取数边界可言）', (() => {
+  sourceCalls.length = 0
+  return true
+})())
+
+// 本机文件 → 本地语料：同样不问边界与钥匙，但要有「面板不搬文件」的提示
+pickCreateType('local-files')
+pickForm('files')
+const filesText = textOfTree(tree)
+check('本地语料不问「使用边界」与「钥匙」，并说明面板不搬文件',
+  !filesText.includes('使用边界') && !filesText.includes('钥匙引用名') && filesText.includes('不会替你搬文件'),
+  filesText.slice(0, 240))
+
+// 远端接口 → http：必须问边界与钥匙
+pickCreateType('remote')
+pickForm('http')
+const httpText = textOfTree(tree)
+check('远端接口仍然要问「使用边界」与「钥匙引用名」',
+  httpText.includes('使用边界') && httpText.includes('钥匙引用名'), httpText.slice(0, 240))
+pickCreateType('local-files')
+pickForm('db')
 
 sourceCalls.length = 0
 setByPlaceholder('小写字母', 'my_sqlite')
