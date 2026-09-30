@@ -62,6 +62,17 @@ const walk = (dir) => {
     // 只扫文本类，且跳过本脚本自己（它里面就写着这些特征）
     if (!/\.(mjs|js|json|md|yml|yaml|txt|example)$/.test(entry.name)) continue
     if (rel === 'scripts/preflight-upload.mjs') continue
+
+    // UTF-8 BOM：Windows 上用 PowerShell 的 `Set-Content -Encoding utf8` 改文件会加上它。
+    // 它会让 JSON.parse 直接失败——DSH 的插件管理器就是这么读 package.json 的，
+    // 带 BOM 的包一装就报 `cannot resolve profile bundle`。必须在推之前挡下。
+    {
+      const head = readFileSync(full).subarray(0, 3)
+      if (head[0] === 0xef && head[1] === 0xbb && head[2] === 0xbf) {
+        problems.push(`${rel}：文件带 UTF-8 BOM（JSON.parse 会失败，改文件请用不带 BOM 的写法）`)
+      }
+    }
+
     let text
     try {
       if (statSync(full).size > 2 * 1024 * 1024) continue

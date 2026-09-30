@@ -1,4 +1,4 @@
-﻿# 更新日志
+# 更新日志
 
 本文件记录 dsh-stash 的版本变化。版本号遵循[语义化版本](https://semver.org/lang/zh-CN/)，
 结构参照 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
@@ -7,6 +7,26 @@
 > 本仓库的首个提交即 0.5.1，更早版本（0.1.0–0.4.0）的提交记录未随仓库保留。
 > 下方「0.4.0 及更早」一节据 `README.md` 的踩坑记录与 `DESIGN-vault.md`（决策记录）整理，
 > **只保留有据可查的部分**；这部分没有日期，因为它们的具体发布日已不可考。
+
+---
+
+## [0.11.2] — 2026-10-01
+
+### 修复
+
+- **去掉 11 个文件里的 UTF-8 BOM。** Windows PowerShell 的 `Set-Content -Encoding utf8` 会给文件加 BOM，
+  而 DSH 的插件管理器用 `JSON.parse` 读 `package.json`——带 BOM 直接抛 `Unexpected token '﻿'`，
+  于是**任何 `dsh plugin` 操作都失败**：装这个插件时报的是
+  `cannot resolve profile bundle "dsh-stash"`，看着像依赖没装，其实是文件头那三个字节。
+  影响 0.11.0 / 0.11.1 的已发布内容，涉及 `package.json`、`README.md`、`CHANGELOG.md`、
+  `cordis.patch.yml`、`sources.example.mjs`、`client/client.js`、`lib/command.js`、
+  `lib/library-view.js`、`lib/handlers/http.js`、`test/client-runtime.mjs`、`test/host-assembly.mjs`。
+- **上传前自检加一条 BOM 检查**（`scripts/preflight-upload.mjs`，CI 也跑这一步）：
+  带 BOM 的文件推不上去了。已用"人为加 BOM → 非零退出、撤掉 → 通过"双向验证。
+
+### 说明
+
+- 代码逻辑一字未改，606 项断言不变。
 
 ---
 
