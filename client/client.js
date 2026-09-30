@@ -1543,7 +1543,7 @@ window.__ModuleLoader__.load({
 							? (form ? renderForm("账号（只登记元数据；值在账号详情里录）") : null)
 							: h("div", { key: "resbody" }, ...renderResourceFormBody()),
 						h("div", { key: "acctlink", style: { ...S.hint, marginTop: "12px" } },
-							"要新建的不是资源，而是账号（一个服务 / 网站，挂若干把钥匙）？",
+							"要新建的不是数据源，而是账号（一个服务 / 网站，挂若干把钥匙）？",
 							h("button", {
 								key: "to-account", className: "dshs-ghost",
 								style: { ...S.btn(false), marginLeft: "6px" },
@@ -1591,10 +1591,10 @@ window.__ModuleLoader__.load({
 
 					children.push(h("div", { key: "res", style: S.sec },
 						h("div", { key: "head", className: "dshs-sec" },
-							h("span", { className: "dshs-secname" }, "资源（三类合计）")),
+							h("span", { className: "dshs-secname" }, "数据源")),
 						h("div", { key: "hero", style: S.heroRow },
 							h("span", { style: S.heroNum }, String(ls.total || 0)),
-							h("span", { style: S.heroLabel }, "资源总数"),
+							h("span", { style: S.heroLabel }, "个数据源"),
 							h("span", { key: "state", style: { ...S.spacer, ...S.dotRow } },
 								h("span", { className: "dshs-dot", style: { background: C.ok } }),
 								h("span", { style: S.count }, (ls.ready || 0) + " 就绪"),
@@ -2628,12 +2628,12 @@ window.__ModuleLoader__.load({
 
 				if (libs.length === 0) {
 					body.push(h("div", { key: "empty", style: S.hint },
-						"这一类里还没有资源。回首页点「＋ 新建条目 → 资源」登记，或直接写 " + (state.sourcesFile || "sources.mjs") + "。"));
+						"这一类里还没有数据源。回首页点「＋ 新建条目」登记，或直接写 " + (state.sourcesFile || "sources.mjs") + "。"));
 				} else {
 					body.push(h("div", { key: "res-head", style: S.groupHead },
 						// 标题用**该类名**：首页那个"资源"是三类合计，这一块是当前这一类自己；
 						// 两处同名会让人问"资源到底指什么"（上一版就是那样）。
-						h("span", { style: S.groupName }, bucketLabel || "资源"),
+						h("span", { style: S.groupName }, "数据源"),
 						// 数字**就写在这里、只出现一次**——与账号块同构：
 						// `名称  自身的数字  动作`。筛选与搜索生效时改报命中数（那是新信息）。
 						h("span", { style: S.spacer }, (needle || filter !== "all")
@@ -2654,7 +2654,7 @@ window.__ModuleLoader__.load({
 					// 筛选到 0 条时表头必须留着，否则用户选完状态就"整个块不见了"，只能退出重进。
 					if (visible.length === 0) {
 						body.push(h("div", { key: "nomatch", style: S.hint },
-							"没有命中当前筛选的资源。把上面的下拉改回「全部」，或清空搜索框。"));
+							"没有命中当前筛选的数据源。把上面的下拉改回「全部」，或清空搜索框。"));
 					} else {
 						body.push(...visible.map(renderCard));
 					}
@@ -2662,7 +2662,7 @@ window.__ModuleLoader__.load({
 
 				return h("div", { className: "dshs-root", style: S.wrap },
 					h("div", { style: S.titleRow },
-						h("span", { style: S.title }, bucketLabel || "资源"),
+						h("span", { style: S.title }, bucketLabel || "数据源"),
 						h("button", { key: "back", className: "dshs-ghost", style: { ...S.spacer, ...S.btn(false) }, onClick: onBack }, "← 概览"),
 						h("button", { key: "reload", className: "dshs-ghost", style: S.btn(false), onClick: onReload }, "刷新")),
 					// 类层不再放大数字：数字归到两个块各自的标题行（账号一行、资源一行），
@@ -2672,7 +2672,7 @@ window.__ModuleLoader__.load({
 						h("input", {
 							key: "q",
 							style: { ...S.input, flex: "1 1 100%" },
-							placeholder: "搜索账号 / 资源：账号名、网址、引用名、id、名称、摘要",
+							placeholder: "搜索账号 / 数据源：账号名、网址、引用名、id、名称、摘要",
 							value: query,
 							onChange: (event) => setQuery(event && event.target ? event.target.value : ""),
 						})),

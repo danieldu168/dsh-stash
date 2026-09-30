@@ -856,7 +856,7 @@ tree = crumbToOverview ? click(crumbToOverview) : render()
 
 // ① 首页：数字优先——资源总数 + 三类各多少
 const overviewText = textOfTree(tree)
-check('首页第一段是资源，不是账号', overviewText.indexOf('资源') < overviewText.indexOf('账号'), overviewText.slice(0, 120))
+check('首页第一段是数据源，不是账号', overviewText.indexOf('数据源') < overviewText.indexOf('账号'), overviewText.slice(0, 120))
 check('首页给出资源总数与状态', overviewText.includes('3 就绪') && overviewText.includes('2 有阻塞'), overviewText.slice(0, 160))
 check('首页三格就是三类（空的那类也显示）', overviewText.includes('远端接口') && overviewText.includes('本机服务') && overviewText.includes('本机文件'))
 const bucketNums = nodesOf(tree).filter((n) => n.props?.style?.fontSize === '34px')
@@ -998,7 +998,7 @@ const __probe = { hasInput: false, hasSelect: false, said: false, text: "" }
     __probe.hasSelect = Boolean(nodesOf(libTreeOf(after)).find((n) => n.type === 'select'
       && (n.children ?? []).some((c) => c && c.props && c.props.value === 'blocked')))
     __probe.text = String(textOfTree(libTreeOf(after))).slice(0, 200)
-    __probe.said = String(textOfTree(libTreeOf(after))).includes('没有命中当前筛选的资源')
+    __probe.said = String(textOfTree(libTreeOf(after))).includes('没有命中当前筛选的数据源')
     const q2 = nodesOf(libTreeOf(after)).find((n) => n.type === 'input' && String(n.props?.placeholder ?? '').includes('搜索账号'))
     if (q2) q2.props.onChange({ target: { value: '' } })
     tree = render()
@@ -1018,7 +1018,7 @@ check('本地语料卡展开后列出路径', corpusDetailText.includes('corpus/
 
 // 回退：点「← 概览」回到首页，类层消失。
 tree = click(buttons(filesTree, '← 概览')[0])
-check('「← 概览」回到首页，类层不再渲染', !libNode(tree) && textOfTree(tree).includes('资源总数'))
+check('「← 概览」回到首页，类层不再渲染', !libNode(tree) && textOfTree(tree).includes('个数据源'))
 
 // ── 新建页：一个页面 + 下拉（新建什么=三类 → 形态 → 字段）→ 直接提 POST ────
 const setByPlaceholder = (needle, value) => {
@@ -1320,7 +1320,7 @@ tree = click(nodesOf(tree).find((n) => n.type === 'button' && textOfTree(n).incl
 let acctTree = libTreeOf(tree)
 const searchInputs = nodesOf(acctTree).filter((n) => n.type === 'input' && String(n.props?.placeholder ?? '').includes('搜索'))
 check('类层只有一个搜索框（不再账号、资源各一个）', searchInputs.length === 1, String(searchInputs.length))
-check('那一个搜索框写明同时管账号与资源', String(searchInputs[0]?.props?.placeholder ?? '').includes('账号') && String(searchInputs[0]?.props?.placeholder ?? '').includes('资源'))
+check('那一个搜索框写明同时管账号与数据源', String(searchInputs[0]?.props?.placeholder ?? '').includes('账号') && String(searchInputs[0]?.props?.placeholder ?? '').includes('数据源'))
 check('状态筛选紧贴资源块（在「资源」标题之后，不在账号块上面）',
   textOfTree(acctTree).indexOf('账号') < textOfTree(acctTree).lastIndexOf('全部'),
   textOfTree(acctTree).slice(0, 160))
@@ -1328,7 +1328,7 @@ libNode(tree).props.setQuery('绝不可能命中的名字')
 tree = render()
 acctTree = libTreeOf(tree)
 check('搜不到账号时给出提示', textOfTree(acctTree).includes('没有匹配的账号'), textOfTree(acctTree).slice(0, 200))
-check('搜不到资源时给出提示', textOfTree(acctTree).includes('没有命中当前筛选的资源'), textOfTree(acctTree).slice(0, 240))
+check('搜不到数据源时给出提示', textOfTree(acctTree).includes('没有命中当前筛选的数据源'), textOfTree(acctTree).slice(0, 240))
 libNode(tree).props.setQuery('某赔率服务')
 tree = render()
 acctTree = libTreeOf(tree)
