@@ -69,15 +69,6 @@ window.__ModuleLoader__.load({
 		},
 	];
 
-	/**
-	 * 新建页第一行是**对象**：资源（能被取数的东西）与账号（钥匙的容器）。
-	 * 三类是**资源的归属**，不是并列的第三类对象——它由形态派生，显示在「归入」那一行。
-	 * 把三类与账号混成一个下拉，就是拿两个轴当一类。
-	 */
-	const CREATE_OBJECTS = [
-		{ id: "resource", label: "资源", hint: "能被取数的东西：接口 / 数据库 / 对象存储 / 语料 / MCP" },
-		{ id: "account", label: "账号", hint: "一个服务 / 网站，下面挂若干把钥匙（引用名）" },
-	];
 	/** 「自动判定」会归到哪一类：写成中文给非专业读者看；MCP 由承载决定，两个都写上。 */
 	const bucketLabelOf = (form) => {
 		if (form === "mcp") return "本机服务（承载 stdio）/ 远端接口（承载 http、sse）";
@@ -1504,9 +1495,9 @@ window.__ModuleLoader__.load({
 				if (view === "resource") {
 					const current = rc || emptyResource("http");
 					return h("div", { className: "dshs-root", style: S.wrap },
-						renderCrumbs("编辑 " + current.id),
+						renderCrumbs("编辑数据源 · " + current.id),
 						h("div", { style: S.titleRow },
-							h("span", { style: S.title }, "编辑资源"),
+							h("span", { style: S.title }, "编辑数据源"),
 							h("button", {
 								key: "cancel", className: "dshs-ghost", style: { ...S.spacer, ...S.btn(false) },
 								onClick: () => { setRc(null);  setView("libraries"); },
@@ -1637,7 +1628,7 @@ window.__ModuleLoader__.load({
 								: null,
 							(ls.lessonGaps || 0) > 0
 								? h("div", { key: "gap", style: S.warn },
-									"有 " + ls.lessonGaps + " 条库失败过却没记经验 —— 进「资源」看是哪条，让会话记一条。")
+									"有 " + ls.lessonGaps + " 条数据源失败过却没记经验 —— 进对应的类里看是哪条，让会话记一条。")
 								: null));
 					}
 
@@ -1756,7 +1747,7 @@ window.__ModuleLoader__.load({
 
 							if (account.inVault === false) {
 								cardChildren.push(h("div", { key: "notvault", style: S.warn },
-									"⚠️ 未登记详情：这个引用名只被库声明，台账里还没有它。点「补登记」补上中文名与类别。"));
+									"⚠️ 未登记详情：这个引用名只被数据源声明，台账里还没有它。点「补登记」补上中文名与类别。"));
 							}
 
 							for (const field of shown) {
@@ -1817,7 +1808,7 @@ window.__ModuleLoader__.load({
 
 				if (account.inVault === false) {
 					detailChildren.push(h("div", { key: "notvault", style: S.banner },
-						"⚠️ 只被库声明，台账里还没登记。补登记之后才会出现在分类分箱里，也能改中文名与类别。",
+						"⚠️ 只被数据源声明，台账里还没登记。补登记之后才会出现在分类分箱里，也能改中文名与类别。",
 						h("div", { key: "act", style: S.form },
 							h("button", {
 								style: S.btn(false),
@@ -2214,7 +2205,7 @@ window.__ModuleLoader__.load({
 						if (data.showUsedBy) {
 							rowChildren.push(h("div", { key: "usedby", style: S.form },
 								h("span", { style: S.hint },
-									"只补「库里没声明、但确实用它」的情况——例如钥匙写进 $DSH_HOME/.env 后由某个 MCP 行读取。库里写了 credentials 的不用勾。"),
+									"只补「数据源里没声明、但确实用它」的情况——例如钥匙写进 $DSH_HOME/.env 后由某个 MCP 行读取。库里写了 credentials 的不用勾。"),
 								...state.libraries.map((lib) => h("label", { key: lib.id, style: S.check },
 									h("input", {
 										type: "checkbox",
