@@ -285,13 +285,25 @@ window.__ModuleLoader__.load({
 		 * 只注入一次，幂等；注入失败只是少一层打磨，不影响功能。
 		 */
 		const STYLE_ID = "dsh-stash-keys-style";
+		/**
+		 * 字号体系：**只在这里定义**。
+		 *   标签 14（主导）→ 值 13 → 占位/说明 11 → 元信息 12
+		 * 表单里出现新字号就是不在这套体系里，测试会挡。
+		 */
+		const TYPE = {
+			label: "14px", value: "13px", note: "11px", meta: "12px",
+			title: "19px", group: "13px",
+			// 展示级数字：首页"一眼看总量"用的，越大越要少用。
+			hero: "52px", cell: "34px", big: "28px", lead: "20px",
+		};
+
 		const STYLESHEET = [
 			".dshs-root{color:" + C.text + ";font-size:13px;}",
 			".dshs-card{background:" + C.layer2 + ";border:1px solid " + C.border + ";border-radius:10px;",
 			"margin-bottom:10px;overflow:hidden;transition:border-color .15s ease;}",
 			".dshs-card:hover{border-color:" + C.borderStrong + ";}",
 			".dshs-field{border-top:1px solid " + C.border + ";padding:11px 0 3px;}",
-			".dshs-root button{font:inherit;border-radius:7px;border:1px solid " + C.borderStrong + ";",
+			".dshs-root button{font-family:inherit !important;font-size:" + TYPE.value + " !important;border-radius:7px;border:1px solid " + C.borderStrong + ";",
 			"background:transparent;color:" + C.text + ";cursor:pointer;padding:5px 11px;",
 			"transition:background .12s ease,border-color .12s ease,color .12s ease;}",
 			".dshs-root button:hover:not(:disabled){background:" + C.layer1 + ";border-color:" + C.text2 + ";}",
@@ -351,12 +363,6 @@ window.__ModuleLoader__.load({
 			}
 		}
 
-		/**
-		 * 字号体系：**只在这里定义**。
-		 *   标签 14（主导）→ 值 13 → 占位/说明 11 → 元信息 12
-		 * 表单里出现新字号就是不在这套体系里，测试会挡。
-		 */
-		const TYPE = { label: "14px", value: "13px", note: "11px", meta: "12px", title: "19px", group: "13px" };
 
 		const S = {
 			// 宽度交给设置面板的内容列决定，不再写死 860px（那会让行过长、阅读疲劳）。
@@ -366,18 +372,18 @@ window.__ModuleLoader__.load({
 				display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap",
 				paddingBottom: "10px", marginBottom: "12px", borderBottom: "1px solid " + C.border,
 			},
-			title: { fontSize: "19px", fontWeight: 600, letterSpacing: "-0.01em" },
+			title: { fontSize: TYPE.title, fontWeight: 600, letterSpacing: "-0.01em" },
 			spacer: { marginLeft: "auto" },
 			crumbRow: { display: "flex", alignItems: "center", gap: "3px", flexWrap: "wrap", marginBottom: "9px" },
-			crumbSep: { color: C.text2, fontSize: "12px" },
+			crumbSep: { color: C.text2, fontSize: TYPE.meta },
 			stats: { paddingBottom: "14px", marginBottom: "14px", borderBottom: "1px solid " + C.border },
 			// 段落容器：整页几段用同一个节奏，段间留白而不是加线。
 			sec: { marginTop: "24px" },
 			// 表单：标签列 + 控件列。控件一律占满控件列，「右边缘对齐」是这张表单不显乱的关键。
 			fieldRow: { display: "flex", alignItems: "flex-start", gap: "14px", marginTop: "14px" },
 			fieldControl: { flex: "1 1 auto", minWidth: 0 },
-			fullInput: { width: "100%", fontSize: "13px", color: C.text },
-			fullSelect: { width: "100%", fontSize: "13px", color: C.text },
+			fullInput: { width: "100%", fontSize: TYPE.value, color: C.text },
+			fullSelect: { width: "100%", fontSize: TYPE.value, color: C.text },
 			rowLabel: { fontSize: TYPE.label, color: C.text2, flex: "0 0 104px", width: "104px", paddingTop: "6px", whiteSpace: "nowrap", textAlign: "right" },
 			// 高级：一条有边框的控件行，而不是一句会被当成正文的长句。
 			advBox: { marginTop: "16px", border: "1px solid " + C.border, borderRadius: "9px", overflow: "hidden" },
@@ -385,19 +391,19 @@ window.__ModuleLoader__.load({
 				display: "flex", alignItems: "baseline", gap: "8px", width: "100%", textAlign: "left",
 				padding: "9px 12px", borderRadius: 0, border: 0, background: C.layer1,
 			},
-			advName: { fontSize: "13px", fontWeight: 600, color: C.text },
-			advNote: { fontSize: "11px", color: C.text2 },
+			advName: { fontSize: TYPE.value, fontWeight: 600, color: C.text },
+			advNote: { fontSize: TYPE.note, color: C.text2 },
 			advBody: { padding: "2px 12px 12px" },
 			heroRow: { display: "flex", alignItems: "baseline", gap: "12px", flexWrap: "wrap", margin: "14px 0 0" },
-			heroNum: { fontSize: "52px", fontWeight: 600, lineHeight: .95, fontVariantNumeric: "tabular-nums" },
-			heroLabel: { fontSize: "12px", color: C.text2 },
+			heroNum: { fontSize: TYPE.hero, fontWeight: 600, lineHeight: .95, fontVariantNumeric: "tabular-nums" },
+			heroLabel: { fontSize: TYPE.meta, color: C.text2 },
 			dotRow: { display: "flex", alignItems: "center", gap: "7px", flexWrap: "wrap" },
-			count: { color: C.text2, fontSize: "12px", fontVariantNumeric: "tabular-nums" },
+			count: { color: C.text2, fontSize: TYPE.meta, fontVariantNumeric: "tabular-nums" },
 			bucketGrid: { display: "flex", marginTop: "20px", borderTop: "1px solid " + C.border, paddingTop: "16px" },
-			cellNum: { fontSize: "34px", fontWeight: 600, lineHeight: 1.05, fontVariantNumeric: "tabular-nums",
+			cellNum: { fontSize: TYPE.cell, fontWeight: 600, lineHeight: 1.05, fontVariantNumeric: "tabular-nums",
 				display: "flex", alignItems: "center", gap: "9px" },
-			cellLabel: { fontSize: "12px", color: C.text2 },
-			cellNote: { fontSize: "12px", color: C.text2 },
+			cellLabel: { fontSize: TYPE.meta, color: C.text2 },
+			cellNote: { fontSize: TYPE.meta, color: C.text2 },
 			// 新建菜单：窄面板里不做绝对定位的浮层（会被裁），直接排成一块。
 			menu: {
 				marginTop: "10px", border: "1px solid " + C.border2, borderRadius: "10px",
@@ -408,72 +414,72 @@ window.__ModuleLoader__.load({
 				width: "100%", textAlign: "left", padding: "9px 13px", borderRadius: 0,
 				borderBottom: "1px solid " + C.border,
 			},
-			menuName: { fontWeight: 600, fontSize: "13px" },
-			menuHint: { color: C.text2, fontSize: "12px" },
-			menuGroup: { padding: "7px 13px", color: C.text2, fontSize: "11px", letterSpacing: "0.06em", background: C.layer1 },
+			menuName: { fontWeight: 600, fontSize: TYPE.value },
+			menuHint: { color: C.text2, fontSize: TYPE.meta },
+			menuGroup: { padding: "7px 13px", color: C.text2, fontSize: TYPE.note, letterSpacing: "0.06em", background: C.layer1 },
 			// 概览页的总数给足字号：这一页本来就是"一眼看总量"。
-			bigNum: { fontSize: "28px", fontWeight: 600, lineHeight: 1.1, fontVariantNumeric: "tabular-nums" },
+			bigNum: { fontSize: TYPE.big, fontWeight: 600, lineHeight: 1.1, fontVariantNumeric: "tabular-nums" },
 			bigRow: { display: "flex", alignItems: "baseline", gap: "9px", flexWrap: "wrap" },
-			bigLabel: { fontSize: "13px", color: C.text2 },
+			bigLabel: { fontSize: TYPE.value, color: C.text2 },
 			bar: {
 				height: "4px", borderRadius: "999px", background: C.layer1,
 				border: "1px solid " + C.border, overflow: "hidden",
 			},
 			barFill: (w) => ({ height: "100%", width: w, background: C.brand }),
 			section: { borderTop: "1px solid " + C.border, paddingTop: "11px", marginTop: "11px" },
-			sectionHead: { fontSize: "12px", color: C.text2, marginBottom: "5px" },
-			rowNote: { fontSize: "12px", color: C.text2, marginTop: "2px" },
+			sectionHead: { fontSize: TYPE.meta, color: C.text2, marginBottom: "5px" },
+			rowNote: { fontSize: TYPE.meta, color: C.text2, marginTop: "2px" },
 			group: { marginTop: "22px" },
 			groupHead: {
 				display: "flex", alignItems: "baseline", gap: "8px", flexWrap: "wrap",
 				paddingBottom: "7px", marginBottom: "9px", borderBottom: "1px solid " + C.border,
-				fontSize: "12px", color: C.text2,
+				fontSize: TYPE.meta, color: C.text2,
 			},
-			groupName: { fontSize: "13px", fontWeight: 600, color: C.text },
+			groupName: { fontSize: TYPE.value, fontWeight: 600, color: C.text },
 			filters: { display: "flex", gap: "7px", flexWrap: "wrap", marginBottom: "14px" },
 			card: { padding: "11px 13px 12px" },
 			row: { border: "1px solid " + C.borderStrong, borderRadius: "10px", padding: "9px 12px", marginBottom: "8px" },
 			field: {},
-			label: { fontWeight: 600, fontSize: "13px" },
+			label: { fontWeight: 600, fontSize: TYPE.value },
 			fieldLabel: { fontWeight: 600 },
-			ref: { fontFamily: "ui-monospace, Consolas, monospace", color: C.text2, fontSize: "12px" },
+			ref: { fontFamily: "ui-monospace, Consolas, monospace", color: C.text2, fontSize: TYPE.meta },
 			pill: (ok) => ({
-				fontSize: "11px", padding: "1px 8px", borderRadius: "999px", lineHeight: 1.7,
+				fontSize: TYPE.note, padding: "1px 8px", borderRadius: "999px", lineHeight: 1.7,
 				border: "1px solid " + (ok ? C.border : C.borderStrong), color: ok ? C.ok : C.text2,
 			}),
 			tag: {
-				fontSize: "11px", padding: "1px 7px", borderRadius: "999px", lineHeight: 1.7,
+				fontSize: TYPE.note, padding: "1px 7px", borderRadius: "999px", lineHeight: 1.7,
 				border: "1px solid " + C.border, color: C.text2,
 			},
 			meta: { color: C.text2, fontSize: TYPE.meta, marginTop: "4px" },
-			warn: { color: C.warn, fontSize: "12px", marginTop: "4px" },
+			warn: { color: C.warn, fontSize: TYPE.meta, marginTop: "4px" },
 			banner: {
 				border: "1px solid " + C.warn, color: C.warn, borderRadius: "9px",
-				padding: "8px 11px", fontSize: "12px", lineHeight: 1.65, marginBottom: "10px",
+				padding: "8px 11px", fontSize: TYPE.meta, lineHeight: 1.65, marginBottom: "10px",
 			},
 			form: { display: "flex", gap: "8px", marginTop: "8px", alignItems: "center", flexWrap: "wrap" },
 			// input/textarea/select 的边框、背景、focus 态都在样式表里，这里只留布局。
-			input: { flex: "1 1 200px", minWidth: "140px", fontSize: "13px", color: C.text },
-			area: { width: "100%", minHeight: "64px", fontSize: "13px", color: C.text },
-			check: { display: "inline-flex", alignItems: "center", gap: "5px", fontSize: "12px", color: C.text2 },
-			btn: (disabled) => (disabled ? { opacity: 0.45 } : {}),
+			input: { flex: "1 1 200px", minWidth: "140px", fontSize: TYPE.value, color: C.text },
+			area: { width: "100%", minHeight: "64px", fontSize: TYPE.value, color: C.text },
+			check: { display: "inline-flex", alignItems: "center", gap: "5px", fontSize: TYPE.meta, color: C.text2 },
+			btn: (disabled) => ({ fontSize: TYPE.value, ...(disabled ? { opacity: 0.45 } : {}) }),
 			hint: { color: C.text2, fontSize: TYPE.note, lineHeight: 1.6 },
-			notice: (bad) => ({ marginTop: "10px", fontSize: "12px", color: bad ? C.bad : C.ok }),
+			notice: (bad) => ({ marginTop: "10px", fontSize: TYPE.meta, color: bad ? C.bad : C.ok }),
 			confirm: { borderColor: C.bad },
 			foldHead: { display: "flex", alignItems: "baseline", gap: "8px", flexWrap: "wrap" },
-			foldCaret: { fontSize: "13px", fontWeight: 600, color: C.text },
+			foldCaret: { fontSize: TYPE.value, fontWeight: 600, color: C.text },
 			// 结果卡：report 是宿主渲染好的纯文本，必须原样保留换行。
 			report: {
 				whiteSpace: "pre-wrap", fontFamily: "ui-monospace, Consolas, monospace",
-				fontSize: "12px", lineHeight: 1.7, color: C.text, marginTop: "9px",
+				fontSize: TYPE.meta, lineHeight: 1.7, color: C.text, marginTop: "9px",
 				background: C.layer1, border: "1px solid " + C.border, borderRadius: "9px", padding: "10px 12px",
 			},
 			code: {
-				fontFamily: "ui-monospace, Consolas, monospace", fontSize: "20px", fontWeight: 600,
+				fontFamily: "ui-monospace, Consolas, monospace", fontSize: TYPE.lead, fontWeight: 600,
 				letterSpacing: "0.14em", color: C.brand, fontVariantNumeric: "tabular-nums",
 			},
-			foldGuide: { color: C.text2, fontSize: "12px", lineHeight: 1.65, marginTop: "8px" },
-			steps: { fontSize: "12px", color: C.warn, lineHeight: 1.65, marginBottom: "9px" },
+			foldGuide: { color: C.text2, fontSize: TYPE.meta, lineHeight: 1.65, marginTop: "8px" },
+			steps: { fontSize: TYPE.meta, color: C.warn, lineHeight: 1.65, marginBottom: "9px" },
 		};
 
 		const statusText = (row) => {
@@ -2079,7 +2085,7 @@ window.__ModuleLoader__.load({
 						h("span", { style: S.fieldLabel }, field.label && field.label !== field.ref ? field.label : field.ref),
 						h("span", { style: S.ref }, field.ref),
 						h("span", {
-							style: { color: field.configured === true ? C.ok : C.text2, fontSize: "12px" },
+							style: { color: field.configured === true ? C.ok : C.text2, fontSize: TYPE.meta },
 						}, statusText(field)),
 						field.inject ? h("span", { style: S.meta }, "落点 " + field.inject) : null)];
 
@@ -2424,11 +2430,11 @@ window.__ModuleLoader__.load({
 					row.push(h("span", { key: "dot", className: "dshs-dot", style: { background: lib.ready ? C.ok : C.warn } }));
 					row.push(h("span", {
 						key: "st",
-						style: { color: lib.ready ? C.ok : C.warn, fontSize: "12px", flex: "0 0 auto" },
+						style: { color: lib.ready ? C.ok : C.warn, fontSize: TYPE.meta, flex: "0 0 auto" },
 					}, lib.ready ? "就绪" : "有阻塞"));
 					row.push(h("span", {
 						key: "n",
-						style: { fontSize: "13px", fontWeight: 600, flex: "0 1 auto", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
+						style: { fontSize: TYPE.value, fontWeight: 600, flex: "0 1 auto", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
 					}, lib.name));
 					row.push(h("span", { key: "id", style: { ...S.ref, flex: "0 0 auto" } }, lib.id));
 					row.push(h("span", { key: "f", style: { ...S.tag, flex: "0 0 auto" } }, lib.formLabel));
@@ -2462,7 +2468,7 @@ window.__ModuleLoader__.load({
 						},
 					}, tail.join(" · ")));
 					row.push(h("span", {
-						key: "caret", style: { color: C.text2, fontSize: "12px", flex: "0 0 auto" },
+						key: "caret", style: { color: C.text2, fontSize: TYPE.meta, flex: "0 0 auto" },
 					}, expanded ? "▴" : "▾"));
 
 					const children = [h("div", {
@@ -2578,13 +2584,7 @@ window.__ModuleLoader__.load({
 						},
 							h("option", { key: "all", value: "all" }, "全部"),
 							h("option", { key: "ready", value: "ready" }, "已配置"),
-							h("option", { key: "missing", value: "missing" }, "有未配置")),
-						onOpenLedger
-							? h("button", {
-								key: "all-acct", className: "dshs-ghost", style: S.btn(false),
-								onClick: onOpenLedger,
-							}, "全部账号 →")
-							: null));
+							h("option", { key: "missing", value: "missing" }, "有未配置"))));
 					if (shown.length === 0) {
 						body.push(h("div", { key: "acct-none", style: S.hint }, "没有匹配的账号。"));
 					}
@@ -2601,7 +2601,7 @@ window.__ModuleLoader__.load({
 							h("div", { key: "h", style: { display: "flex", alignItems: "center", gap: "8px", flexWrap: "nowrap", overflow: "hidden", cursor: onOpenAccount ? "pointer" : "default" } },
 								h("span", { className: "dshs-dot", style: { background: missing === 0 ? C.ok : C.warn, flex: "0 0 auto" } }),
 								h("span", {
-									style: { fontSize: "13px", fontWeight: 600, flex: "0 1 auto", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
+									style: { fontSize: TYPE.value, fontWeight: 600, flex: "0 1 auto", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
 								}, account.label),
 								h("span", { style: { ...S.tag, flex: "0 0 auto" } }, account.categoryLabel ?? account.category),
 								h("span", { style: { ...S.ref, flex: "0 0 auto" } }, account.id),
@@ -2612,7 +2612,7 @@ window.__ModuleLoader__.load({
 										flex: "1 1 auto", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
 									},
 								}, fields.length + " 把钥匙" + (missing > 0 ? " · " + missing + " 把未配置" : " · 已配置")),
-								h("span", { key: "caret", style: { color: C.text2, fontSize: "12px", flex: "0 0 auto" } }, "›")));
+								h("span", { key: "caret", style: { color: C.text2, fontSize: TYPE.meta, flex: "0 0 auto" } }, "›")));
 					}));
 					if (collapsed) {
 						body.push(h("button", {

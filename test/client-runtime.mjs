@@ -1071,6 +1071,13 @@ check('ID 标签用大写', (() => {
   const labels = nodesOf(tree).filter((n) => n.type === 'span').map((n) => String(textOfTree(n)))
   return labels.includes('ID') && !labels.includes('id')
 })())
+check('按钮字号与控件同号（取消 / 概览 / 刷新不再大一码）', (() => {
+  const buttonRule = /\.dshs-root button\{[^}]*font-size:" \+ TYPE\.value \+ " !important/.test(src)
+  const btnStyle = /btn: \(disabled\) => \(\{ fontSize: TYPE\.value/.test(src)
+  return buttonRule && btnStyle
+})())
+check('账号块不再挂「全部账号 →」（下拉里已有「全部」，展开/收起另有控件）',
+  !src.includes('全部账号 →') && src.includes('"全部"'))
 check('标签右对齐且在固定列里', (() => {
   const label = nodesOf(tree).find((n) => n.type === 'span' && (n.children ?? [])[0] === '新建什么')
   const st = label?.props?.style ?? {}
