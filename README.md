@@ -1,4 +1,4 @@
-# dsh-stash —— DSH 链接外部资源库的钥匙串
+﻿# dsh-stash —— DSH 链接外部资源库的钥匙串
 
 ![license](https://img.shields.io/badge/license-MIT-blue)
 ![node](https://img.shields.io/badge/node-%3E%3D22-brightgreen)
@@ -32,7 +32,7 @@ stash 就是这三问的归宿：
 ## 如何安装
 
 ```powershell
-pnpm dsh plugin --profile web add "github:danieldu168/dsh-stash#v0.11.0"
+pnpm dsh plugin --profile web add "github:danieldu168/dsh-stash#v0.11.1"
 ```
 
 装完重启 Profile，浏览器那半边硬刷新。验一句：问「我登记了哪些库？」——没登记过，它回"本机尚未登记外部资源"。
