@@ -983,6 +983,27 @@ tree = click(buttons(tree, 'stash')[0])
 tree = click(bucketBtn(tree, '本机文件'))
 let filesTree = libTreeOf(tree)
 check('本机文件那一类装文件型资源', textOfTree(filesTree).includes('本地语料') && textOfTree(filesTree).includes('本地数据库'))
+
+// 筛选到 0 条时，资源块的表头与下拉必须还在，否则用户选完状态就再也改不回来。
+const __probe = { hasInput: false, hasSelect: false, said: false, text: "" }
+{
+  const q = nodesOf(filesTree).find((n) => n.type === 'input' && String(n.props?.placeholder ?? '').includes('搜索账号'))
+  __probe.hasInput = Boolean(q)
+  if (q) {
+    q.props.onChange({ target: { value: 'zzz-matching-nothing' } })
+    const after = render()
+    __probe.hasSelect = Boolean(nodesOf(libTreeOf(after)).find((n) => n.type === 'select'
+      && (n.children ?? []).some((c) => c && c.props && c.props.value === 'blocked')))
+    __probe.text = String(textOfTree(libTreeOf(after))).slice(0, 200)
+    __probe.said = String(textOfTree(libTreeOf(after))).includes('没有命中当前筛选的资源')
+    const q2 = nodesOf(libTreeOf(after)).find((n) => n.type === 'input' && String(n.props?.placeholder ?? '').includes('搜索账号'))
+    if (q2) q2.props.onChange({ target: { value: '' } })
+    tree = render()
+  }
+}
+check('筛选到 0 条时，资源块的表头与下拉仍在（用户能改回来）',
+  __probe.hasInput && __probe.hasSelect && __probe.said,
+  JSON.stringify(__probe))
 check('人工导出型库显示其边界标签', textOfTree(cardWith(filesTree, '本地语料（导出件）')).includes('只能人工导出'))
 check('列表上不摊用法（用法在详情里）', !textOfTree(cardWith(filesTree, '本地语料（导出件）')).includes('用法：stash_files'))
 tree = openCard(tree, '本地语料（导出件）')

@@ -2633,8 +2633,6 @@ window.__ModuleLoader__.load({
 				if (libs.length === 0) {
 					body.push(h("div", { key: "empty", style: S.hint },
 						"这一类里还没有资源。回首页点「＋ 新建条目 → 资源」登记，或直接写 " + (state.sourcesFile || "sources.mjs") + "。"));
-				} else if (visible.length === 0) {
-					body.push(h("div", { key: "nomatch", style: S.hint }, "没有命中当前筛选的资源。"));
 				} else {
 					body.push(h("div", { key: "res-head", style: S.groupHead },
 						h("span", { style: S.groupName }, "资源"),
@@ -2654,7 +2652,14 @@ window.__ModuleLoader__.load({
 							onChange: (event) => setFilter(event && event.target ? event.target.value : "all"),
 						},
 							...chips.map((chip) => h("option", { key: chip.id, value: chip.id }, chip.label)))));
-					body.push(...visible.map(renderCard));
+					// 表头与下拉**先渲染**，再决定这一行下面是列表还是空态说明：
+					// 筛选到 0 条时表头必须留着，否则用户选完状态就"整个块不见了"，只能退出重进。
+					if (visible.length === 0) {
+						body.push(h("div", { key: "nomatch", style: S.hint },
+							"没有命中当前筛选的资源。把上面的下拉改回「全部」，或清空搜索框。"));
+					} else {
+						body.push(...visible.map(renderCard));
+					}
 				}
 
 				return h("div", { className: "dshs-root", style: S.wrap },
